@@ -58,7 +58,7 @@ Walk them through each step as it runs:
 
 **Background services:**
 - *Mac* — launchd services installed automatically (entity-watcher, evaluate-triggers)
-- *Linux* — systemd unit written; prompt the user to run: `systemctl --user enable --now substrate-entity-watcher`
+- *Linux* — systemd user units installed and enabled automatically (entity-watcher, evaluate-triggers timer). If auto-enable fails, the installer prints the manual commands.
 - *Windows* — Task Scheduler tasks installed automatically (EntityWatcher, EvaluateTriggers)
 
 When it prints "Substrate is ready." — you're done with install.

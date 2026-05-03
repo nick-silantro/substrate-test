@@ -225,26 +225,16 @@ def _install_cli_windows(cli_src: Path) -> None:
 def _setup_workspace(cli_src: Path, engine_path: Path, instance_path: Path) -> None:
     _bold(f"Setting up workspace at {instance_path}...")
 
+    if (instance_path / "CLAUDE.md").exists():
+        _ok("Workspace already exists — skipping creation")
+        print()
+        return
+
     env = {
         **os.environ,
         "SUBSTRATE_ENGINE_PATH": str(engine_path),
         "SUBSTRATE_PATH": str(instance_path),
     }
-
-    if (instance_path / "CLAUDE.md").exists():
-        _info("Workspace exists — syncing skills and index...")
-        sys.stdout.flush()
-        r = subprocess.run(
-            [sys.executable, str(cli_src), "sync"],
-            env=env,
-        )
-        if r.returncode != 0:
-            _warn("Workspace sync failed. Run: substrate sync")
-        else:
-            _ok("Workspace synced")
-        print()
-        return
-
     r = subprocess.run(
         [sys.executable, str(cli_src), "init", str(instance_path)],
         env=env,

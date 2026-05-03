@@ -967,14 +967,51 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
     elif system == "Linux":
         user_systemd = home / ".config" / "systemd" / "user"
         user_systemd.mkdir(parents=True, exist_ok=True)
+        (target / "_system" / "logs").mkdir(parents=True, exist_ok=True)
 
-        for template in sorted(deploy_dir.glob("substrate-*.service")):
-            dest = user_systemd / template.name
+        newly_written: list[str] = []
+
+        templates = sorted(deploy_dir.glob("substrate-*.service")) + \
+                    sorted(deploy_dir.glob("substrate-*.timer"))
+        for template in templates:
+            unit_name = template.name
+            unit_label = template.stem
+            dest = user_systemd / unit_name
+
+            if dest.exists() and not reinstall:
+                print(f"  • {unit_label}: already installed (skipping — use --reinit to update)")
+                continue
+
+            if reinstall and dest.exists():
+                subprocess.run(
+                    ["systemctl", "--user", "disable", "--now", unit_name],
+                    capture_output=True,
+                )
+
             dest.write_text(apply_subs(template.read_text()))
-            print(f"  ✓ {template.name}: written to {dest}")
+            newly_written.append(unit_name)
 
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-        print("  Run: systemctl --user enable --now substrate-entity-watcher")
+
+        # Timer-backed services are activated by their timer — don't enable directly.
+        all_timers = {t.name for t in user_systemd.glob("substrate-*.timer")}
+        timer_backed = {t.replace(".timer", ".service") for t in all_timers}
+
+        for unit_name in newly_written:
+            unit_label = unit_name.replace(".service", "").replace(".timer", "")
+            if unit_name.endswith(".service") and unit_name in timer_backed:
+                print(f"  ✓ {unit_label}: written (activated by its timer)")
+                continue
+            result = subprocess.run(
+                ["systemctl", "--user", "enable", "--now", unit_name],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                kind = "timer enabled and running" if unit_name.endswith(".timer") else "enabled and started"
+                print(f"  ✓ {unit_label}: {kind}")
+            else:
+                print(f"  ✓ {unit_label}: written — enable manually:")
+                print(f"      systemctl --user enable --now {unit_name}")
 
     elif system == "Windows":
         _install_services_windows(target, ep, home, substrate_bin, reinstall)

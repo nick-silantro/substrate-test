@@ -1,0 +1,28 @@
+# systemd user service for the Substrate trigger evaluator (Linux).
+#
+# This is a oneshot service activated by substrate-evaluate-triggers.timer.
+# Do not enable this service directly — enable the timer instead.
+#
+# Placeholders — substitute before installing:
+#   __WORKSPACE__   absolute path to the workspace root (e.g. /home/alice/substrate)
+#   __ENGINE__      absolute path to the engine install (e.g. /home/alice/.substrate/engine)
+#   __HOME__        user's home directory (e.g. /home/alice)
+#   __SUBSTRATE__   absolute path to the substrate CLI (e.g. /home/alice/.local/bin/substrate)
+#
+# Status / logs:
+#   systemctl --user status substrate-evaluate-triggers
+#   journalctl --user -u substrate-evaluate-triggers -f
+
+[Unit]
+Description=Substrate Trigger Evaluator — evaluate and fire due triggers
+
+[Service]
+Type=oneshot
+WorkingDirectory=__WORKSPACE__
+Environment=HOME=__HOME__
+Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=SUBSTRATE_PATH=__WORKSPACE__
+Environment=SUBSTRATE_ENGINE_PATH=__ENGINE__
+ExecStart=__SUBSTRATE__ triggers evaluate
+StandardOutput=append:__WORKSPACE__/_system/logs/evaluate-triggers-stdout.log
+StandardError=append:__WORKSPACE__/_system/logs/evaluate-triggers-stderr.log

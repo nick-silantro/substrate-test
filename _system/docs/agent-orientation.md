@@ -69,7 +69,9 @@ Read the relevant skill before doing non-trivial operations:
 
 ```bash
 substrate context entity-management        # creating and updating entities
+substrate context entity-query             # finding and retrieving entities
 substrate context relationship-management  # linking entities
+substrate context staging-intake           # processing files from staging/
 substrate context schema-evolution         # adding custom types and attributes
 substrate context system-validation        # validating workspace integrity
 substrate context archive-management       # archiving completed work
