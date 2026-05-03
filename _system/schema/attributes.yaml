@@ -1,0 +1,1189 @@
+# attributes.yaml — Attribute definitions, blocks, and dimensional status model
+# Source of truth for what attributes exist, their data types, and which types can use them.
+#
+# Structure:
+#   universal    — attributes every entity has, regardless of type
+#   blocks       — named groups of attributes with shared access rules
+#   attributes   — all non-universal, non-block attributes with access declarations
+#   dimensions   — the 8 status dimensions with access declarations
+#
+# The access model is ATTRIBUTE-CENTRIC: attributes declare which types can use them,
+# not the other way around. Types do not define attributes. One place to find any attribute.
+#
+# Access gradations:
+#   required   — attribute must exist and contain a valid value
+#   preferred  — attribute is available and encouraged; agents should set it
+#   optional   — attribute is available but not default (only for exclusive: false)
+#   forbidden  — attribute cannot be used with this type (exclusive + not listed)
+#
+# The exclusive toggle:
+#   exclusive: false (default) — listed types get required/preferred; everything else gets optional
+#   exclusive: true            — ONLY listed types can use the attribute; everything else is forbidden
+#
+# Access declarations can reference types or natures:
+#   required:
+#     types: ["workstream"]
+#     natures: ["work"]
+#
+# Convention: target_type accepts three forms:
+# 1. Type name:      target_type: "person"              — must point at this type
+# 2. Array:          target_type: ["user", "agent"]     — may point at any listed type
+# 3. Grouping ref:   target_type: "group:actors"        — expands to all types in that grouping
+#
+# The "group:" prefix makes grouping references explicit and collision-proof.
+# Grouping refs scale automatically — adding a type to a grouping in types.yaml
+# broadens every attribute that references it. No per-attribute edits needed.
+#
+# Storage tier (attributes section only — universal/blocks/dimensions are special-cased):
+#   storage: "indexed"    — (default) attribute gets a SQLite TEXT column AND an index.
+#                            Use for anything filtered, sorted, or grouped in queries.
+#   storage: "column"     — SQLite TEXT column, NO index. Queryable via SQL but slow
+#                            at scale. Use for long-form sentences or JSON blobs
+#                            where exact-match indexing is waste.
+#   storage: "file_only"  — meta.yaml ONLY. No SQLite column. Not queryable by SQL.
+#                            Use for prose content fields (multi-paragraph, free text)
+#                            where filtering doesn't make semantic sense.
+#
+# Every attribute declared here gets a SQLite column by default; opt out with
+# "column" (drop the index) or "file_only" (drop the column entirely).
+#
+# **Default to "indexed"** unless you have a specific reason to downgrade.
+# The vast majority of attributes belong in "indexed" — if you're not sure,
+# pick that. The other tiers exist to handle specific edge cases:
+#   - enum, short identifier, date, URL, boolean → indexed (default)
+#   - one-sentence free text, JSON blob → column
+#   - multi-sentence prose, agenda/diagnostic body → file_only
+#
+# Legacy: `index_in_sqlite: true` maps to "indexed". `index_in_sqlite: false` is
+# silently ignored (does NOT downgrade to column or file_only — use `storage`).
+#
+# See: _system/docs/attribute-access-doctrine.md for design rationale
+# See: schema.resolve_target_type() in _system/scripts/schema.py
+
+universal:
+  # Every entity has these attributes. They are implicit — not repeated per type.
+  # Identity and temporal attributes only. Status lives in the dimensions block (meta_status).
+  id:
+    data_type: "uuid"
+    required: true
+  name:
+    data_type: "string"
+    required: true
+  type:
+    data_type: "string"
+    required: true
+  description:
+    data_type: "string"
+    required: true
+    description: "1-2 sentence explanation; use '[awaiting context]' marker if context limited at creation"
+  created:
+    data_type: "datetime"
+    required: true
+  last_edited:
+    data_type: "datetime"
+    required: true
+  processed_by:
+    data_type: "list"
+    item_type: "string"
+    required: false
+    cardinality: "many"
+    description: "Agent stamps. Tracks which agents have evaluated this entity. Values are agent definition names (e.g. 'knowledge-master')."
+  snoozed_from:
+    data_type: "date"
+    required: false
+    description: "Start of snooze period. If null, snooze starts immediately when snoozed_until is set."
+  snoozed_until:
+    data_type: "date"
+    required: false
+    description: "End of snooze period. Suppresses workability and temporal evaluation until this date."
+
+# Attribute Blocks
+#
+# A block is a named group of attributes that travel together and share access rules.
+# The block declares availability; individual attributes within it can narrow (but not
+# widen) that availability.
+#
+# When something is a block:
+# - Multiple attributes are semantically coupled (setting one without the others is meaningless)
+# - The attributes share the same access pattern across types
+# - The group has a name that agents and humans would recognize
+
+blocks:
+  recurrence:
+    description: "Attributes for entities that participate in recurrence lifecycle"
+    exclusive: false
+    required:
+      natures: ["work"]
+    fields:
+      recurrence:
+        data_type: "recurrence"
+        required: false
+        description: "Recurrence configuration. When present, entity participates in the recurrence lifecycle."
+        sub_attrs: ["schedule_type", "interval", "precision", "days", "day_of_month", "next_date_basis", "lead_time_days", "next_due", "last_completed", "completion_count", "streak", "last_fired", "fire_count"]
+        # Config attributes: schedule_type, interval, precision, days, day_of_month, next_date_basis, lead_time_days.
+        # Runtime attributes: next_due, last_completed, completion_count, streak, last_fired, fire_count.
+        # Runtime attrs are managed by the trigger engine and live nested under recurrence: in meta.yaml.
+        #
+        # interval: compound field {value: N, unit: seconds|minutes|hours|days|weeks|months|years}.
+        #   Replaces the former interval_days (integer). One source of truth for all cadences.
+        # precision: "date" or "timestamp". Controls how next_due is calculated after completion/firing.
+        #   date: next_due is a date boundary (midnight). What time you completed doesn't matter.
+        #   timestamp: next_due is an exact datetime. Precise moment matters.
+        #   Smart defaults: hours/minutes/seconds -> timestamp. days/weeks/months/years -> date.
+        # next_due: datetime (ISO format). Existing YYYY-MM-DD values are valid (parsed as midnight).
+        # last_completed: datetime. When a human or agent last marked this entity completed.
+        # completion_count: integer. Lifetime completion count.
+        # streak: integer. Consecutive on-time completions.
+        # last_fired: datetime. When the trigger engine last fired this entity (triggers only).
+        # fire_count: integer. Lifetime trigger firings (triggers only).
+        # lead_time_days: integer. Days before next_due to promote from backlog to ready. Zero for triggers.
+
+# Attributes (attributes section)
+#
+# All non-universal, non-block attributes. Every attribute declares where it belongs via
+# an access declaration. An attribute exclusive to one type is just
+# exclusive: true, required: [that_type].
+
+attributes:
+  # --- Shared across multiple types ---
+
+  # --- Decision ---
+
+  system:
+    data_type: "boolean"
+    default: false
+    description: "When true, this decision affects how Substrate itself works — its schema, scripts, relationships, or operating model. Enables flat-query scoping of system-level decisions without requiring graph traversal. A decision can be system: true and still belongs_to a user-domain project if it has cross-cutting implications."
+    access:
+      exclusive: true
+      preferred:
+        types: ["decision"]
+
+  # --- Invoicing (invoice, receipt) ---
+
+  invoice_number:
+    data_type: "string"
+    required: false
+    description: "Human-readable invoice identifier (e.g., INV-001)"
+    access:
+      exclusive: true
+      preferred:
+        types: ["invoice"]
+
+  receipt_number:
+    data_type: "string"
+    required: false
+    description: "Human-readable receipt identifier (e.g., REC-001)"
+    access:
+      exclusive: true
+      preferred:
+        types: ["receipt"]
+
+  amount:
+    data_type: "string"
+    required: false
+    description: "Monetary amount with currency (e.g., '3000 USD')"
+    access:
+      preferred:
+        types: ["invoice", "receipt"]
+
+  due_date:
+    data_type: "date"
+    required: false
+    description: "ISO date on which payment is expected"
+    access:
+      exclusive: true
+      preferred:
+        types: ["invoice"]
+
+  period_start:
+    data_type: "date"
+    required: false
+    description: "Start of the billing period covered by this invoice"
+    access:
+      exclusive: true
+      preferred:
+        types: ["invoice"]
+
+  period_end:
+    data_type: "date"
+    required: false
+    description: "End of the billing period covered by this invoice"
+    access:
+      exclusive: true
+      preferred:
+        types: ["invoice"]
+
+  payment_date:
+    data_type: "date"
+    required: false
+    description: "ISO date on which payment was received"
+    access:
+      exclusive: true
+      preferred:
+        types: ["receipt"]
+
+  payment_method:
+    data_type: "string"
+    required: false
+    description: "How payment was made (e.g., 'ACH', 'wire', 'check')"
+    access:
+      exclusive: true
+      preferred:
+        types: ["receipt"]
+
+  # --- End invoicing ---
+
+  # --- Skills ---
+
+  location_scope:
+    data_type: "enum"
+    required: false
+    values: ["global", "substrate"]
+    description: "Where the skill file lives — global (~/.claude/skills/) or Substrate-local (.claude/skills/)"
+    access:
+      exclusive: true
+      preferred:
+        types: ["skill"]
+
+  invocation:
+    data_type: "string"
+    required: false
+    storage: "column"
+    description: "The conditions or phrases under which this skill activates; mirrors the description field in SKILL.md frontmatter"
+    access:
+      exclusive: true
+      preferred:
+        types: ["skill"]
+
+  origin:
+    data_type: "enum"
+    required: false
+    values: ["custom", "plugin"]
+    description: "How this skill was acquired — custom (written by the workspace owner) or plugin (bundled with a plugin)"
+    access:
+      exclusive: true
+      preferred:
+        types: ["skill"]
+
+  # --- End skills ---
+
+  endstate:
+    data_type: "string"
+    required: true
+    storage: "column"
+    description: "One sentence describing what the world looks like when this is done"
+    access:
+      exclusive: true
+      required:
+        types: ["project", "incident"]
+
+  slo_floors:
+    data_type: "list"
+    item_type: "string"
+    cardinality: "many"
+    required: false
+    storage: "file_only"
+    description: "Service level floors this stream maintains"
+    access:
+      exclusive: true
+      required:
+        types: ["workstream"]
+
+  due:
+    data_type: "date"
+    required: false
+    description: "When this is due"
+    access:
+      exclusive: false
+      preferred:
+        types: ["task", "ticket"]
+
+  start_date:
+    data_type: "date"
+    required: false
+    description: "When this begins (date precision)"
+    access:
+      exclusive: false
+      preferred:
+        types: ["project"]
+
+  end_date:
+    data_type: "date"
+    required: false
+    description: "When this ends (date precision)"
+    access:
+      exclusive: false
+      preferred:
+        types: ["project"]
+
+  start_time:
+    data_type: "datetime"
+    required: false
+    description: "When this begins (datetime precision)"
+    access:
+      exclusive: false
+      preferred:
+        types: ["meeting"]
+
+  end_time:
+    data_type: "datetime"
+    required: false
+    description: "When this ends (datetime precision); if user provides duration, infer from start_time"
+    access:
+      exclusive: false
+      preferred:
+        types: ["meeting"]
+
+  timeframe:
+    data_type: "string"
+    required: false
+    description: "Time horizon for this effort"
+    access:
+      exclusive: false
+      preferred:
+        types: ["initiative", "goal"]
+
+  version:
+    data_type: "string"
+    required: false
+    description: "Current version identifier"
+    access:
+      exclusive: false
+      preferred:
+        types: ["document", "script", "product"]
+
+  url:
+    data_type: "url"
+    required: false
+    description: "External link"
+    access:
+      exclusive: false
+      preferred:
+        types: ["reference", "article", "product", "tool"]
+
+  asset_path:
+    data_type: "string"
+    description: "Path to the asset file relative to repo root (e.g., assets/substrate_logo.png)"
+    access:
+      exclusive: true
+      required:
+        groupings: ["asset"]
+
+  file_format:
+    data_type: "string"
+    description: "File format of the asset (e.g., png, svg, jpeg, mp4)"
+    access:
+      exclusive: true
+      required:
+        groupings: ["asset"]
+
+  platform:
+    data_type: "enum"
+    required: false
+    values: ["substack", "linkedin", "medium", "youtube", "website", "slack", "email", "claude", "other"]
+    description: "Where this occurred or will be published"
+    access:
+      exclusive: false
+      preferred:
+        types: ["conversation", "article", "reference"]
+
+  direction:
+    data_type: "enum"
+    required: false
+    values: ["outbound", "inbound"]
+    description: "Whether this communication was sent or received"
+    access:
+      exclusive: true
+      required:
+        types: ["correspondence"]
+
+  channel:
+    data_type: "enum"
+    required: false
+    values: ["email", "linkedin", "telegram", "slack", "phone", "in_person", "other"]
+    description: "The medium through which this communication was conducted"
+    notes: "Temporary string enum. Will be replaced by tool entity relationships per ticket b5d3f97f."
+    access:
+      exclusive: true
+      preferred:
+        types: ["correspondence"]
+
+  sent_at:
+    data_type: "datetime"
+    required: false
+    description: "When this communication was sent or received"
+    access:
+      exclusive: true
+      preferred:
+        types: ["correspondence"]
+
+  # --- Exclusive to single types or small groups ---
+
+  ideal:
+    data_type: "string"
+    required: true
+    storage: "file_only"
+    description: "The asymptotic ideal statement (1-2 lines)"
+    access:
+      exclusive: true
+      required:
+        types: ["pillar"]
+
+  diagnostics:
+    data_type: "list"
+    item_type: "string"
+    cardinality: "many"
+    required: false
+    storage: "file_only"
+    description: "3-5 metrics/signals that indicate movement toward the ideal"
+    access:
+      exclusive: true
+      preferred:
+        types: ["pillar"]
+
+  floors:
+    data_type: "list"
+    item_type: "string"
+    cardinality: "many"
+    required: false
+    storage: "file_only"
+    description: "Do-not-breach guardrails for this pillar"
+    access:
+      exclusive: true
+      preferred:
+        types: ["pillar"]
+
+  window:
+    data_type: "string"
+    required: false
+    description: "Time window (e.g. '2026-Q1')"
+    access:
+      exclusive: true
+      preferred:
+        types: ["workstream"]
+
+  started:
+    data_type: "datetime"
+    required: false
+    description: "When the incident began"
+    access:
+      exclusive: true
+      preferred:
+        types: ["incident"]
+
+  resolved:
+    data_type: "datetime"
+    required: false
+    description: "When the incident was resolved"
+    access:
+      exclusive: true
+      preferred:
+        types: ["incident"]
+
+  source:
+    data_type: "string"
+    required: false
+    description: "Creator, author, or channel this content came from"
+    access:
+      exclusive: true
+      preferred:
+        types: ["reference"]
+
+  medium:
+    data_type: "enum"
+    required: false
+    values: ["video", "article", "post", "newsletter", "podcast", "tweet", "other"]
+    description: "The format of the external content"
+    access:
+      exclusive: true
+      preferred:
+        types: ["reference"]
+
+  role:
+    data_type: "string"
+    required: false
+    access:
+      exclusive: true
+      preferred:
+        types: ["person"]
+
+  email:
+    data_type: "email"
+    required: false
+    access:
+      exclusive: true
+      preferred:
+        types: ["person"]
+
+  handle:
+    data_type: "string"
+    required: true
+    description: "Short name used in assignment fields and queries (e.g., 'nick')"
+    access:
+      exclusive: true
+      required:
+        types: ["user"]
+
+  level:
+    data_type: "enum"
+    required: true
+    values: ["L0", "L1", "L2", "L3", "service"]
+    description: "Position in the agent hierarchy"
+    access:
+      exclusive: true
+      required:
+        types: ["agent"]
+
+  model:
+    data_type: "enum"
+    required: false
+    values: ["opus", "sonnet", "haiku", "inherit"]
+    description: "Preferred LLM model; inherit defers to the caller's choice"
+    access:
+      exclusive: true
+      preferred:
+        types: ["agent"]
+
+  config_path:
+    data_type: "string"
+    description: "Path to the agent's operational definition file relative to repo root (e.g., .claude/agents/carl.md)"
+    access:
+      exclusive: true
+      preferred:
+        types: ["agent"]
+
+  org_type:
+    data_type: "enum"
+    required: false
+    values: ["company", "team", "department", "group"]
+    access:
+      exclusive: true
+      preferred:
+        types: ["organization"]
+
+  answer:
+    data_type: "string"
+    required: false
+    storage: "file_only"
+    description: "The resolution or finding, captured when status moves to answered"
+    access:
+      exclusive: true
+      preferred:
+        types: ["inquiry"]
+
+  thesis:
+    data_type: "string"
+    required: true
+    storage: "file_only"
+    description: "The core proposition; what could be built, pursued, or explored"
+    access:
+      exclusive: true
+      required:
+        types: ["idea"]
+
+  event_type:
+    data_type: "enum"
+    required: true
+    values: ["resolution_changed", "dimension_changed", "date_reached",
+             "schedule_fired", "entity_created", "relationship_added"]
+    description: "Which event type this trigger responds to"
+    access:
+      exclusive: true
+      required:
+        types: ["trigger"]
+
+  condition:
+    data_type: "string"
+    required: false
+    description: "Condition expression checked against event context"
+    access:
+      exclusive: true
+      preferred:
+        types: ["trigger"]
+
+  action_type:
+    data_type: "enum"
+    required: true
+    values: ["set_dimension", "set_next_due", "create_entity", "add_notification", "reset_recurrence", "spawn_agent"]
+    description: "What action to take when the trigger fires"
+    access:
+      exclusive: true
+      required:
+        types: ["trigger"]
+
+  action_parameters:
+    data_type: "string"
+    required: false
+    storage: "column"
+    description: "JSON-encoded parameters for the action"
+    access:
+      exclusive: true
+      preferred:
+        types: ["trigger"]
+
+  executor:
+    data_type: "enum"
+    required: true
+    values: ["cascade", "agent", "user"]
+    description: "How the action is executed"
+    access:
+      exclusive: true
+      required:
+        types: ["trigger"]
+
+  decided_date:
+    data_type: "date"
+    required: false
+    access:
+      exclusive: true
+      preferred:
+        types: ["decision"]
+
+  location:
+    data_type: "string"
+    required: false
+    description: "Physical address, room name, or virtual meeting link"
+    access:
+      exclusive: true
+      preferred:
+        types: ["meeting"]
+
+  agenda:
+    data_type: "string"
+    required: false
+    storage: "file_only"
+    description: "Brief description of purpose"
+    access:
+      exclusive: true
+      preferred:
+        types: ["meeting"]
+
+  category:
+    data_type: "enum"
+    required: false
+    values: ["bug", "inefficiency", "ux", "process", "other"]
+    access:
+      exclusive: true
+      preferred:
+        types: ["friction"]
+
+  observed:
+    data_type: "string"
+    required: true
+    storage: "file_only"
+    description: "What happened, the actual friction experienced"
+    access:
+      exclusive: true
+      required:
+        types: ["friction"]
+
+  context:
+    data_type: "string"
+    required: false
+    storage: "file_only"
+    description: "What it relates to, where/when it occurred"
+    access:
+      exclusive: true
+      preferred:
+        types: ["friction"]
+
+  next_steps:
+    data_type: "list"
+    item_type: "string"
+    cardinality: "many"
+    required: false
+    storage: "file_only"
+    description: "Recommended actions for investigation or resolution"
+    access:
+      exclusive: true
+      preferred:
+        types: ["friction"]
+
+  session_id:
+    data_type: "string"
+    required: true
+    description: "UUID of the session transcript this was distilled from"
+    access:
+      exclusive: true
+      required:
+        types: ["diary-entry"]
+
+  agent:
+    data_type: "string"
+    required: true
+    description: "Which agent ran the session ('interactive' for human sessions, or agent name)"
+    access:
+      exclusive: true
+      required:
+        types: ["diary-entry"]
+
+  carry_forward:
+    data_type: "string"
+    required: false
+    description: "Proto-patterns not yet mature enough for memory; compress pass reads these across entries to detect confirmed patterns"
+    access:
+      exclusive: true
+      preferred:
+        types: ["diary-entry"]
+
+  format:
+    data_type: "enum"
+    required: false
+    values: ["video", "audio", "presentation", "other"]
+    access:
+      exclusive: true
+      preferred:
+        types: ["script"]
+
+  duration:
+    data_type: "string"
+    required: false
+    description: "Estimated runtime"
+    access:
+      exclusive: true
+      preferred:
+        types: ["script"]
+
+  participants:
+    data_type: "list"
+    item_type: "string"
+    cardinality: "many"
+    required: false
+    description: "Names or identifiers of participants"
+    access:
+      exclusive: true
+      preferred:
+        types: ["conversation"]
+
+  topic:
+    data_type: "string"
+    required: false
+    description: "Brief description of what was discussed"
+    access:
+      exclusive: true
+      preferred:
+        types: ["conversation"]
+
+  content_scope:
+    data_type: "string"
+    required: false
+    description: "What this collection is meant to contain"
+    access:
+      exclusive: true
+      preferred:
+        types: ["library"]
+
+  published_date:
+    data_type: "date"
+    required: false
+    access:
+      exclusive: false
+      preferred:
+        types: ["article", "reference"]
+
+  repo:
+    data_type: "url"
+    required: false
+    description: "Git repository URL"
+    access:
+      exclusive: true
+      preferred:
+        types: ["build"]
+
+  build_path:
+    data_type: "string"
+    required: false
+    description: "Relative path to the local codebase directory (e.g., builds/surface/)"
+    access:
+      exclusive: true
+      preferred:
+        types: ["build"]
+
+  tech_stack:
+    data_type: "list"
+    item_type: "string"
+    cardinality: "many"
+    required: false
+    description: "Primary technologies used in this codebase (e.g., Next.js, React, TypeScript)"
+    access:
+      exclusive: true
+      preferred:
+        types: ["build"]
+
+  target_date:
+    data_type: "date"
+    required: false
+    access:
+      exclusive: true
+      preferred:
+        types: ["milestone"]
+
+  theme:
+    data_type: "string"
+    description: "Lightweight organizational label for grouping work items into planning batches. Free-form string (e.g., 'foundation', 'delivery', '1', '2'). Not an enum — naming conventions vary by project. Distinct from milestones: theme is a label on work items, not a structured entity with its own lifecycle."
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  user_review_required:
+    data_type: "boolean"
+    default: true
+    description: "When true, a user review is required for this work in addition to any agent review. The agent review and user review are separate, additive gates — not substitutive. Under_review plus this flag represents 'agent done, user review also needed.' Does not add a new life stage."
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  user_check_required:
+    data_type: "boolean"
+    default: false
+    description: "When true, a user review entity (reviewer_role=user, gate=pre_execution, verdict=pass) must exist before life_stage can advance to ready. The human counterpart to the agent BSC — both are pre-ready quality checks on the plan, catching different classes of blind spots."
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  is_blocked:
+    data_type: "boolean"
+    default: false
+    description: "System-managed flag indicating unresolved dependencies block this entity. Set and cleared automatically by cascades.py -- do not set manually."
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+      forbidden:
+        groupings: ["horizons"]
+
+  engagement_mode:
+    data_type: "enum"
+    values: ["none", "wander", "explore", "experiment", "lean", "execute"]
+    default: "none"
+    description: "How you relate to this work. Typically set once at creation. Changes are corrections, not tracking of evolution — if the work's nature has genuinely shifted, spawn a new entity. Any mode change requires adjusting existing engagement documentation. 'none' means undecided — no mode assigned yet. 'lean' means the work is small and bounded enough that pre-work docs add no value; execute directly with no doctrine, plan, or trace required. A review doc is still required for lean — the builder produces it before marking under_review."
+    access:
+      exclusive: true
+      required:
+        groupings: ["actions"]
+
+  domain:
+    data_type: "enum"
+    values: ["code", "infrastructure", "content", "data", "design", "strategy", "communication"]
+    description: "Subject matter domain for L2 agent self-selection. Assigned by L1 at ticket creation. Use one value when possible; two only for work that genuinely spans domains (e.g., strategic communications). Three domains means the work should be split. No inheritance from parent efforts — always assign explicitly."
+    list: true
+    max_items: 2
+    # storage defaults to "indexed" — explicit here for clarity since this is the canonical
+    # example of an indexed list attribute. Comma-separated in the SQLite column.
+    storage: "indexed"
+    access:
+      exclusive: true
+      preferred:
+        groupings: ["actions"]
+
+  canonical:
+    data_type: "boolean"
+    default: false
+    description: "Marks the source entity that all others in this type derive from. Exactly one entity of a given type should be canonical. Agents use this to locate the root without tree traversal."
+    access:
+      exclusive: true
+      preferred:
+        types: ["resume"]
+
+  job_title:
+    data_type: "string"
+    required: true
+    description: "The role title as listed by the employer"
+    access:
+      exclusive: true
+      required:
+        types: ["job-opportunity"]
+
+  listing_url:
+    data_type: "string"
+    required: false
+    description: "URL of the original job listing"
+    access:
+      exclusive: true
+      preferred:
+        types: ["job-opportunity"]
+
+  application_stage:
+    data_type: "enum"
+    required: false
+    values: ["saved", "skipped", "applied", "screening", "interviewing", "offer", "closed"]
+    default: "saved"
+    description: "Where this opportunity sits in the job application lifecycle — from initial triage through outcome."
+    access:
+      exclusive: true
+      preferred:
+        types: ["job-opportunity"]
+
+  fit:
+    data_type: "enum"
+    required: false
+    values: ["1", "2", "3", "4", "5"]
+    description: "How well Nick's profile matches what this role is asking for. Agent sets at triage; Nick can override."
+    access:
+      exclusive: true
+      preferred:
+        types: ["job-opportunity"]
+
+  top_pick:
+    data_type: "enum"
+    required: false
+    values: ["true", "false"]
+    default: "false"
+    description: "Whether Nick has flagged this as a role he genuinely wants. Nick's call only."
+    access:
+      exclusive: true
+      preferred:
+        types: ["job-opportunity"]
+
+  closing_date:
+    data_type: "date"
+    required: false
+    description: "Application deadline for this role, if stated. Roles past this date move to closed automatically."
+    access:
+      exclusive: true
+      preferred:
+        types: ["job-opportunity"]
+
+  address:
+    data_type: "string"
+    required: false
+    description: "Physical street address"
+    access:
+      exclusive: true
+      preferred:
+        types: ["organization"]
+
+  comment_type:
+    data_type: "enum"
+    required: false
+    values: ["discussion", "flag", "action_required", "status_update"]
+    default: "discussion"
+    description: "The nature of this comment — discussion is a general annotation, flag marks something for attention, action_required requests a response, status_update records a state change"
+    access:
+      exclusive: true
+      preferred:
+        types: ["comment"]
+
+  file_target:
+    data_type: "string"
+    required: false
+    description: "Filename within the parent entity that this comment is attached to. When set, the comment is file-level rather than entity-level."
+    access:
+      exclusive: true
+      preferred:
+        groupings: ["messaging"]
+
+  gate:
+    data_type: "enum"
+    required: false
+    values: ["pre_execution", "post_execution"]
+    description: "Which lifecycle gate this review belongs to — pre_execution (BSC/user check, before ready) or post_execution (work review, at under_review/done_working)"
+    access:
+      exclusive: true
+      required:
+        types: ["review"]
+
+  reviewer_role:
+    data_type: "enum"
+    required: false
+    values: ["peer", "owner", "user"]
+    description: "The role perspective of this reviewer. peer = L2 agent focused on the work itself; owner = L1 agent with project context and ownership accountability; user = human reviewer. Determines which gate slot this review satisfies."
+    access:
+      exclusive: true
+      required:
+        types: ["review"]
+
+  verdict:
+    data_type: "enum"
+    required: false
+    values: ["pass", "conditional", "fail"]
+    description: "The outcome of this review or check. pass = no required fixes; conditional = required fixes identified, gate blocked until resolved; fail = fundamental problem, triggers rollback cascade."
+    access:
+      exclusive: true
+      required:
+        types: ["review"]
+# Dimensional Status Model
+#
+# The 8 status dimensions replace per-type flat status attributes.
+# Status is dimensional — each dimension answers a different question.
+# Types pick which dimensions they use based on grouping nature (the buffet model).
+#
+# Each dimension has an access declaration following the same syntax as attributes.
+# One syntactic difference: dimensions support forbidden.types for per-type exclusions
+# within a preferred nature (e.g., resolution is a FLAIR dimension — object-nature types cannot use it).
+#
+# See: _system/docs/philosophy-quick-reference.md (Status Dimensions section)
+# See: _system/docs/attribute-access-doctrine.md (Unified Access Model for Dimensions)
+
+  context_audience:
+    data_type: "list"
+    description: "Which agent levels and domains can access this context-doc — values like L0, L1, L2, all, or domain tags like domain:graph, domain:ops"
+    access:
+      exclusive: true
+      required:
+        types: ["context-doc"]
+
+  startup_for:
+    data_type: "list"
+    description: "Which agent levels and domains receive this context-doc automatically at session boot — a subset of audience"
+    access:
+      exclusive: true
+      preferred:
+        types: ["context-doc"]
+
+  permission_mode:
+    data_type: "enum"
+    description: "Permission mode for this agent when invoked via SDK. Overrides instance-level default. Most-to-least permissive: bypassPermissions (no prompts), acceptEdits (auto-approve edits, prompt others), default (prompt dangerous ops), plan (plan mode only)."
+    values: ["bypassPermissions", "acceptEdits", "default", "plan"]
+    access:
+      exclusive: true
+      preferred:
+        types: ["agent"]
+
+dimensions:
+  # Permanent — dimensions cannot be added or removed.
+  # Bundled values are non-removable but globally renamable.
+  # Users can add custom values to any dimension.
+
+  # Universal Dimension — applies to all entity types regardless of nature.
+  # Not part of the buffet model; every entity has this.
+  # Transitions made via --attr meta_status=VALUE (no named CLI flag — intentional).
+  meta_status:
+    category: "universal"
+    question: "Is this entity active in the system?"
+    values: ["nascent", "live", "archived"]
+    default: "live"
+    access:
+      exclusive: false
+
+  # HIP Dimensions (object-nature groupings)
+  health:
+    category: "HIP"
+    question: "How is this doing?"
+    values: ["growing", "stable", "declining", "problematic", "undefined"]
+    default: "undefined"
+    type_defaults:
+      friction: "problematic"    # frictions are by definition something wrong
+    access:
+      exclusive: true
+      preferred:
+        natures: ["object"]
+
+  importance_strategic:
+    category: "HIP"
+    question: "How central is this?"
+    values: ["core", "important", "peripheral"]
+    access:
+      exclusive: true
+      preferred:
+        natures: ["object"]
+
+  phase:
+    category: "HIP"
+    question: "Where is this in its lifecycle?"
+    values: ["forming", "established", "aging", "retired"]
+    type_defaults:
+      friction: "established"   # an observed friction is already a real-world condition
+      agent: "established"      # runtime agents are operational when created
+      goal: "forming"           # goals begin as aspirations being defined
+    access:
+      exclusive: true
+      preferred:
+        natures: ["object"]
+      forbidden:
+        groupings: ["opportunities"]  # pipeline_status covers lifecycle for opportunities
+
+  # FLAIR Dimensions (work-nature groupings)
+  focus:
+    category: "FLAIR"
+    question: "Am I working on this right now?"
+    values: ["idle", "active", "waiting", "paused", "closed"]
+    default: "idle"
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  life_stage:
+    category: "FLAIR"
+    question: "Where is this in its workflow?"
+    values: ["backlog", "ready", "in_progress", "under_review", "done_working"]
+    default: "backlog"
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  assessment:
+    category: "FLAIR"
+    question: "How is it going / how did it go?"
+    delivery_values: ["not_assessed", "on_track", "at_risk", "off_track"]
+    outcome_values: ["not_assessed", "exceeded", "succeeded", "mixed", "failed"]
+    default: "not_assessed"
+    note: "One dimension with two value sets; active set depends on resolution state"
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  importance_tactical:
+    category: "FLAIR"
+    question: "How urgent is this?"
+    values: ["critical", "high", "medium", "low"]
+    type_defaults:
+      incident: "high"      # incidents are inherently urgent
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  resolution:
+    category: "FLAIR"
+    question: "Is this done?"
+    values: ["unresolved", "completed", "cancelled", "deferred", "superseded"]
+    default: "unresolved"
+    access:
+      exclusive: true
+      preferred:
+        natures: ["work"]
+
+  # Grouping-Level Dimensions
+  # Scoped to a specific grouping — not universal. Use preferred.groupings: [...]
+  # to route to all types in a grouping, mirroring preferred.natures: [...].
+  # category: "grouping" and grouping: "X" are semantic metadata — they identify
+  # the tier and owning grouping for documentation and future validator tooling.
+  #
+  # Type-level dimensions: A type may define its own lifecycle dimension (not
+  # at the grouping level) when its pipeline is genuinely distinct, externally
+  # recognizable, and stable — and forcing it into shared grouping vocabulary
+  # would obscure rather than organize. Use exclusive: true + types: ["X"].
+  # The bar is high: earn the vocabulary, don't claim it speculatively.
+  delivery_status:
+    category: "grouping"
+    grouping: "deliverables"
+    question: "Where is this in its delivery lifecycle?"
+    values: ["draft", "issued", "received", "void"]
+    # Note: no per-value definitions exist in the current schema model. The dimension's
+    # question: field is the only semantic anchor. Value definitions are a system-wide gap,
+    # not specific to grouping dimensions — deferred to when schema browsing UI is built.
+    default: "draft"
+    access:
+      exclusive: true
+      preferred:
+        groupings: ["deliverables"]
+
+  payment_status:
+    category: "grouping"
+    grouping: "deliverables"
+    question: "Has this been paid?"
+    values: ["outstanding", "paid", "overdue"]
+    default: "outstanding"
+    access:
+      exclusive: true
+      preferred:
+        groupings: ["deliverables"]
+
+

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd unit for the Substrate trigger evaluator (macOS).
+  Runs every 5 minutes to promote ready chores and spawn due agent triggers.
+
+  Placeholders — substitute before installing:
+    __WORKSPACE__   absolute path to the workspace root (e.g. /Users/alice/substrate)
+    __ENGINE__      absolute path to the engine install (e.g. /Users/alice/.substrate/engine)
+    __HOME__        user's home directory (e.g. /Users/alice)
+    __SUBSTRATE__   absolute path to the substrate CLI binary (e.g. /Users/alice/.local/bin/substrate)
+
+  Install:
+    sed -e 's|__WORKSPACE__|/path/to/workspace|g' \
+        -e 's|__ENGINE__|/path/to/engine|g' \
+        -e 's|__HOME__|'"$HOME"'|g' \
+        -e 's|__SUBSTRATE__|'"$HOME"'/.local/bin/substrate|g' \
+        _system/deploy/com.substrate.evaluate-triggers.plist \
+        > ~/Library/LaunchAgents/com.substrate.evaluate-triggers.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.evaluate-triggers.plist
+
+  Uninstall:
+    launchctl bootout gui/$(id -u)/com.substrate.evaluate-triggers
+    rm ~/Library/LaunchAgents/com.substrate.evaluate-triggers.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.substrate.evaluate-triggers</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__SUBSTRATE__</string>
+        <string>triggers</string>
+        <string>evaluate</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__WORKSPACE__</string>
+
+    <key>StartInterval</key>
+    <integer>300</integer>
+
+    <key>StandardOutPath</key>
+    <string>__WORKSPACE__/_system/logs/evaluate-triggers-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__WORKSPACE__/_system/logs/evaluate-triggers-stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PATH</key>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>SUBSTRATE_PATH</key>
+        <string>__WORKSPACE__</string>
+        <key>SUBSTRATE_ENGINE_PATH</key>
+        <string>__ENGINE__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

@@ -1,0 +1,32 @@
+# Substrate Python dependencies
+#
+# Install:
+#   python3 -m venv _system/venv
+#   _system/venv/bin/pip install -r requirements.txt
+#
+# On Linux systems with PEP 668 enforcement (Ubuntu 23.04+), do NOT install
+# globally — use the venv path above. If the venv can't be created, fall back
+# to `pip install --user --break-system-packages -r requirements.txt` and
+# understand that you're bypassing distro Python protection.
+#
+# Windows: watchdog, pyyaml, fastembed, and sqlite-vec all have Windows
+# builds, but other parts of Substrate (fcntl-based file locking in
+# lib/fileio.py, SIGALRM signal usage, shell scripts) are Unix-only today.
+# Full Windows support is a planned workstream, not a current capability.
+
+# --- Core (required for entity operations) ---
+PyYAML>=6.0,<7
+
+# --- Infrastructure services ---
+# watchdog: filesystem change detection for entity-watcher (backend-agnostic
+# cross-platform: FSEvents on macOS, inotify on Linux, ReadDirectoryChangesW
+# on Windows).
+watchdog>=4.0,<7
+
+# --- Search / embeddings (optional — only needed if semantic search is used) ---
+# fastembed: local embedding generation for entity descriptions / content.
+# sqlite-vec: vector index extension for SQLite.
+# If you don't use Substrate's semantic-search features, these can be omitted.
+# The core query path (query.py, create-entity.py, etc.) works without them.
+fastembed>=0.7,<1
+sqlite-vec>=0.1,<1

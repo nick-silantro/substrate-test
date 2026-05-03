@@ -1,0 +1,235 @@
+# relationships.yaml — Relationship definitions, inverses, connection rules, and query behavior
+# Source of truth for how entities can connect to each other.
+#
+# Four canonical categories. These are fixed — no new categories may be added in deployed instances.
+# Recursion is never implied by category membership; all traversal depth is specified at query time.
+
+categories:
+  containment:
+    description: "Structural parent-child hierarchy. Universal — not restricted to any nature or grouping."
+    relationships:
+      belongs_to:
+        inverse: "contains"
+        description: "Structural parent-child hierarchy — the source lives within the scope of the target"
+      child_of:
+        inverse: "parent_of"
+        description: "Biological or organizational lineage"
+        notes: "Expected: person entities on both sides. Lineage has no meaning outside of people."
+      reports_to:
+        inverse: "manages"
+        description: "Organizational reporting structure"
+        notes: "Expected: person entities on both sides. Org hierarchy has no meaning outside of people."
+      member_of:
+        inverse: "has_member"
+        description: "Group membership"
+
+  origin:
+    description: "Where something came from — its birthplace, source context, or what it was derived from. The emerged entity holds the forward relationship; the origin context is the target."
+    relationships:
+      comes_from:
+        inverse: "spawned"
+        description: "The source entity emerged from this origin context"
+        notes: "Target is always an object-nature entity (meeting, conversation, document, event). Work entities are actors — they produce things, they do not birth things. Nothing comes_from a work entity."
+      derived_from:
+        inverse: "source_of"
+        description: "The source entity was built by transforming or extending the target"
+        notes: "Target is the raw material or prior version — always an object-nature entity."
+
+  causal:
+    description: "Dependency, enablement, purpose, and production. The source enables, serves, leads to, or produces the target — or the target's existence or progress depends on the source."
+    relationships:
+      leads_to:
+        inverse: "follows_from"
+        description: "Forward outcome causality — the source causes the target to emerge or become possible"
+      serves:
+        inverse: "served_by"
+        description: "Purposeful contribution — the source work exists in pursuit of this horizon's purpose"
+        notes: "Target must be horizon-nature (mission, pillar, goal). For work contributing to objects, use supports."
+      supports:
+        inverse: "supported_by"
+        description: "Operational contribution — the source work contributes to this object's development or maintenance"
+        notes: "Target must be exclusively object-nature (no dual-nature). For work contributing to horizons, use serves."
+      enables:
+        inverse: "depends_on"
+        description: "Hard prerequisite — the source must exist or complete before the target can proceed"
+      produces:
+        inverse: "produced_by"
+        description: "Work entity generates an output — document, artifact, or deliverable"
+        notes: "Source is always a work-nature entity. Objects do not produce outputs through intentional action — work does."
+      implements:
+        inverse: "implemented_by"
+        description: "The source codebase/artifact realizes or embodies the target"
+        notes: "Typical: build -> product. Not restricted — a build could implement other entity types."
+      settles:
+        inverse: "settled_by"
+        description: "Receipt confirms full payment of this invoice"
+        notes: "Expected source types: receipt. Expected target types: invoice."
+      addresses:
+        inverse: "addressed_by"
+        description: "The source directly responds to or resolves the target — a value-prop addresses a pain-point, a solution addresses a problem"
+        notes: "Typical: value-prop -> pain-point. Not restricted — any entity making a purposeful response to another's problem can use this relationship."
+      governs:
+        inverse: "governed_by"
+        description: "The source principle, policy, or rule shapes and constrains how the target entity is built, decided, or operated"
+        notes: "Expected source types: principle, decision. Target is any entity (product, project, ticket, decision) the principle constrains."
+      supersedes:
+        inverse: "superseded_by"
+        description: "The source replaces or overrides the target — a newer decision, principle, or policy retiring an earlier one"
+        notes: "Expected source types: decision, principle. When a decision supersedes another, the superseded entity's phase transitions to retired. Bidirectional — the superseded entity knows what replaced it."
+
+  associative:
+    description: "Role-based connections, participation, general association, and trigger wiring. Terminal — traversal depth is always specified explicitly; no implied chaining."
+    relationships:
+      relates_to:
+        inverse: "relates_to"
+        symmetric: true
+        description: "General association"
+      targets:
+        inverse: "targeted_by"
+        description: "The source pursuit is directed at this entity — an opportunity targets an organization"
+        notes: "Expected source types: opportunities grouping. Expected target types: organization, person."
+      references:
+        inverse: "referenced_by"
+        description: "Cites or points to"
+      assigned_to:
+        inverse: "owns"
+        description: "Assignment of work or responsibility to an actor"
+      attended:
+        inverse: "attendee"
+        description: "Actor participated in an event"
+      stakeholder_in:
+        inverse: "has_stakeholder"
+        description: "Interest or involvement without ownership"
+      authored_by:
+        inverse: "authored"
+        description: "Creator of a knowledge or artifact entity"
+      attributed_to:
+        inverse: "credited_in"
+        description: "Person or organization whose words are being quoted"
+        notes: "Expected source type: quote. Target is group:actors."
+      replies_to:
+        inverse: "replied_by"
+        description: "Message reply chain — enables threading without a separate thread entity"
+        notes: "Expected: messaging entities (comment, review) on both sides. Reply chains have no meaning outside of threaded messaging entities."
+      watches:
+        inverse: "watched_by"
+        description: "Trigger monitors this entity for events"
+      acts_on:
+        inverse: "acted_on_by"
+        description: "Trigger's action targets this entity"
+      reviewed_by:
+        inverse: "reviews"
+        description: "Outside perspective who verifies completion"
+        notes: "Expected source types: task, ticket, project, workstream, incident, initiative. Target is a user or agent."
+      performed_by:
+        inverse: "performed"
+        description: "Who executed or is executing this work or authored this message"
+        notes: "Expected source types: task, comment, review. Cardinality: many — multiple actors can co-perform. For messaging entities, the performing actor is the author for reply notification routing."
+      mentions:
+        inverse: "mentioned_in"
+        description: "Actor referenced in a messaging entity — receiving a mention triggers notification"
+        notes: "Expected source type: comment, review. Target is group:actors. Cardinality: many."
+      asked_by:
+        inverse: "asked"
+        description: "Actor who posed this question"
+        notes: "Expected source type: inquiry. Target is group:actors."
+      decided_by:
+        inverse: "decided"
+        description: "Actor who made this decision"
+        notes: "Expected source type: decision. Target is group:actors."
+      curated_by:
+        inverse: "curates"
+        description: "Actor responsible for maintaining this library"
+        notes: "Expected source type: library. Target is group:actors."
+      uses:
+        inverse: "used_in"
+        description: "The source entity incorporates or relies on the target — an artifact uses an asset, a document uses an image"
+        notes: "General-purpose incorporation. Typical: artifact -> asset (video uses a video-file, cover letter uses a signature). Not restricted to asset targets."
+      sent_to:
+        inverse: "received_from"
+        description: "Outbound correspondence directed at this person"
+        notes: "Expected source type: correspondence. Expected target type: person."
+      has_contact:
+        inverse: "contact_for"
+        description: "Point-of-contact person for this entity"
+        notes: "Expected target types: person. Source can be any entity with a point-of-contact relationship (job-opportunity, organization, meeting, etc.)."
+      billed_to:
+        inverse: "billed_by"
+        description: "Invoice is addressed to this client"
+        notes: "Expected source types: invoice. Expected target types: organization, person."
+
+connection_rules:
+  # By default, any entity can connect to any other using any relationship.
+  # Guidance on expected types lives in the `notes` attribute on each relationship definition above.
+  # No hard restrictions are enforced here — agents are guided by skills and relationship notes.
+
+  # Work types form strict layers: tasks -> tickets -> projects -> initiatives.
+  # An entity cannot contain or belong to another of the same type.
+  # This applies to work types only — other types (libraries, documents, etc.) may nest freely.
+  # Scoped to containment relationships only — dependency chains (depends_on, enables)
+  # between same-type entities are valid and expected.
+  no_same_type_nesting:
+    enabled: true
+    applies_to: ["task", "ticket", "project", "workstream", "incident", "initiative"]
+    scope_category: "containment"  # descriptive metadata — not machine-read by scripts; documents intent that this invariant applies to containment relationships only, not sequencing (depends_on, enables)
+
+required_relationships:
+  task:
+    - relationship: "belongs_to"
+      target_types: ["ticket"]
+      notes: "Tasks belong to tickets — both are work, ticket is the coordination scope"
+  ticket:
+    - relationship: "belongs_to"
+      target_types: ["project", "workstream", "incident"]
+      notes: "Tickets belong to projects or project subtypes (not other tickets)"
+  workstream:
+    - relationship: "serves"
+      target_types: ["mission"]
+      notes: "Workstreams serve a mission"
+  mission:
+    - relationship: "serves"
+      target_types: ["pillar"]
+      notes: "Missions serve a pillar"
+
+enforcement:
+  on_create: "Agent should prompt for parent if not specified"
+  on_validate: "System validation should flag orphaned entities"
+  grace_period_hours: 24
+  orphan_ok_marker: "orphan-ok"
+
+# Common patterns (not enforced) — typical usage for agents
+common_patterns:
+  - pattern: "belongs_to"
+    typical: "task -> ticket, ticket -> project, project -> initiative, document -> library, article -> library"
+  - pattern: "serves"
+    typical: "task -> goal, project -> mission, mission -> pillar, project -> product, workstream -> mission"
+  - pattern: "comes_from"
+    typical: "work/knowledge entities -> meetings, conversations, documents"
+  - pattern: "produces"
+    typical: "task/ticket -> article, document, or other artifact"
+  - pattern: "assigned_to"
+    typical: "work entities -> user, agent"
+  - pattern: "authored_by"
+    typical: "knowledge/artifact entities -> actors (person, user, agent)"
+  - pattern: "attended"
+    typical: "actors (person, user, agent) -> meeting"
+  - pattern: "implements"
+    typical: "build -> product, build -> any entity the codebase realizes"
+
+# Query behavior — how agents interpret natural language about relationships
+query_behavior:
+  immediate_signals:
+    - pattern: "what belongs to X"
+      follows: "belongs_to"
+    - pattern: "what does X enable"
+      follows: "enables"
+    - pattern: "where did X come from"
+      follows: "comes_from"
+    - pattern: "what did X produce"
+      follows: "produces"
+  traversal_note: "Recursion is never implied by category membership. All traversal depth (single-hop vs. recursive) is specified explicitly at query time by the script or agent. Use category membership (via schema.relationships_by_category) to determine which relationship names to follow, not to determine depth."
+  filtering:
+    - example: "all work under X"
+      meaning: "Containment traversal, filtered to work types"
+    - example: "tasks that depend on X"
+      meaning: "Causal traversal, filtered to task type"
