@@ -1,0 +1,1773 @@
+#!/usr/bin/env python3
+"""
+substrate — Substrate CLI v0 (facade)
+
+Delegates to engine scripts. Set SUBSTRATE_ENGINE_PATH to override the engine
+location; set SUBSTRATE_PATH to override the instance location.
+"""
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+# Make cli/ importable for any local modules
+_CLI_DIR = Path(__file__).resolve().parent
+if str(_CLI_DIR) not in sys.path:
+    sys.path.insert(0, str(_CLI_DIR))
+
+
+# ---------------------------------------------------------------------------
+# Claude OAuth token
+# ---------------------------------------------------------------------------
+
+def _read_claude_oauth_token() -> str | None:
+    """
+    Read the Claude Code OAuth access token.
+
+    Priority:
+      1. ~/.substrate/auth.token — written by the installer (all platforms)
+      2. macOS Keychain "Claude Code-credentials" — direct read on Mac
+    """
+    # 1. Installer-written token file (platform-agnostic)
+    token_file = Path.home() / ".substrate" / "auth.token"
+    if token_file.exists():
+        try:
+            token = token_file.read_text().strip()
+            if token:
+                return token
+        except Exception:
+            pass
+
+    # 2. macOS Keychain fallback (for users who haven't run the installer)
+    if sys.platform != "darwin":
+        return None
+    try:
+        result = subprocess.run(
+            ["security", "find-generic-password", "-s", "Claude Code-credentials", "-w"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        data = json.loads(result.stdout.strip())
+        return data.get("claudeAiOauth", {}).get("accessToken")
+    except Exception:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Port utilities
+# ---------------------------------------------------------------------------
+
+def _is_port_free(port: int) -> bool:
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        try:
+            s.bind(("", port))
+            return True
+        except OSError:
+            return False
+
+
+def _find_free_port(preferred: int) -> tuple[int, bool]:
+    """Return (port, was_remapped). Increments from preferred until a free port is found."""
+    port = preferred
+    while not _is_port_free(port):
+        port += 1
+    return port, port != preferred
+
+
+# ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+def _find_workspace_from_cwd() -> Path | None:
+    """Walk up from CWD to find the root of a Substrate workspace."""
+    current = Path.cwd()
+    while True:
+        if (current / "_system").is_dir() and (current / "CLAUDE.md").exists():
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+
+
+def _engine_from_overlay(workspace: Path) -> Path | None:
+    """Read the engine path from a workspace's overlay.yaml if declared."""
+    overlay = workspace / "_system" / "overlay.yaml"
+    if not overlay.exists():
+        return None
+    try:
+        # Try yaml.safe_load first (full overlay support)
+        try:
+            import yaml as _yaml_ov
+            data = _yaml_ov.safe_load(overlay.read_text()) or {}
+            if isinstance(data, dict) and "engine" in data:
+                value = str(data["engine"]).strip()
+                if value:
+                    return Path(value).expanduser().resolve()
+        except Exception:
+            pass
+        # Fallback: line-by-line parser for simple engine: key
+        for line in overlay.read_text().splitlines():
+            if line.startswith("engine:"):
+                value = line.split(":", 1)[1].strip()
+                if value:
+                    return Path(value).expanduser().resolve()
+    except Exception:
+        pass
+    return None
+
+
+def _load_overlay() -> dict:
+    """Load overlay.yaml from the current workspace. Returns {} if missing."""
+    ip = instance_path()
+    overlay_path = ip / "_system" / "overlay.yaml"
+    if not overlay_path.exists():
+        return {}
+    try:
+        import yaml as _yaml_ov
+        data = _yaml_ov.safe_load(overlay_path.read_text()) or {}
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_overlay(data: dict) -> None:
+    """Write overlay.yaml back to the workspace.
+    NOTE: yaml.dump does not preserve hand-written comments — PyYAML limitation.
+    """
+    import yaml as _yaml_ov
+    ip = instance_path()
+    overlay_path = ip / "_system" / "overlay.yaml"
+    overlay_path.parent.mkdir(parents=True, exist_ok=True)
+    overlay_path.write_text(_yaml_ov.dump(data, default_flow_style=False, sort_keys=False))
+
+
+def _resolve_type_alias(name: str, aliases: dict | None = None) -> str:
+    """Resolve a type name through overlay aliases. Returns canonical. Warns on collision."""
+    if aliases is None:
+        aliases = _load_overlay().get("aliases", {})
+    type_aliases = aliases.get("types", {})
+    if not type_aliases:
+        return name
+    # Build reverse map: alias_target -> canonical
+    reverse = {v: k for k, v in type_aliases.items() if isinstance(v, str)}
+    if name in reverse:
+        canonical = reverse[name]
+        # Defensive collision check: if name also matches a canonical, canonical wins
+        ip = instance_path()
+        ep = engine_path(ip)
+        try:
+            import sys as _sys
+            scripts_dir = str(ep / "_system" / "scripts")
+            if scripts_dir not in _sys.path:
+                _sys.path.insert(0, scripts_dir)
+            from schema import load_schema as _ls
+            schema = _ls(str(ip))
+            if name in schema.known_types:
+                print(f"warning: alias '{name}' is shadowed by a canonical name — run 'substrate schema alias check' to review", file=sys.stderr)
+                return name
+        except Exception:
+            pass
+        return canonical
+    return name
+
+
+def _resolve_attribute_alias(name: str, aliases: dict | None = None) -> str:
+    """Resolve an attribute name through overlay aliases."""
+    if aliases is None:
+        aliases = _load_overlay().get("aliases", {})
+    attr_aliases = aliases.get("attributes", {})
+    reverse = {v: k for k, v in attr_aliases.items() if isinstance(v, str)}
+    if name in reverse:
+        return reverse[name]
+    return name
+
+
+def _resolve_relationship_alias(name: str, aliases: dict | None = None) -> str:
+    """Resolve a relationship name through overlay aliases."""
+    if aliases is None:
+        aliases = _load_overlay().get("aliases", {})
+    rel_aliases = aliases.get("relationships", {})
+    reverse = {v: k for k, v in rel_aliases.items() if isinstance(v, str)}
+    if name in reverse:
+        return reverse[name]
+    return name
+
+
+def _check_alias_collisions(schema, overlay_aliases: dict) -> list[dict]:
+    """Return list of {kind, alias, canonical, collision_with} for any collisions."""
+    collisions = []
+
+    # Collect canonical names
+    canonical_types = set(schema.known_types)
+    # All attribute names from all sections
+    canonical_attrs = set()
+    canonical_attrs.update(schema.attributes.get("attributes", {}).keys())
+    canonical_attrs.update(schema.attributes.get("universal", {}).keys())
+    for block_def in schema.attributes.get("blocks", {}).values():
+        canonical_attrs.update(block_def.get("fields", {}).keys())
+    canonical_attrs.update(schema.attributes.get("dimensions", {}).keys())
+    # All relationship names (forward + inverse)
+    canonical_rels = set(schema.relationship_names)
+
+    type_aliases = overlay_aliases.get("types", {})
+    attr_aliases = overlay_aliases.get("attributes", {})
+    rel_aliases = overlay_aliases.get("relationships", {})
+
+    # Check type aliases
+    seen_type_targets = {}
+    for canonical, alias_target in type_aliases.items():
+        if alias_target in canonical_types:
+            collisions.append({"kind": "type", "alias": alias_target, "canonical": canonical, "collision_with": alias_target})
+        elif alias_target in seen_type_targets and seen_type_targets[alias_target] != canonical:
+            collisions.append({"kind": "type", "alias": alias_target, "canonical": canonical, "collision_with": f"alias for '{seen_type_targets[alias_target]}'"})
+        else:
+            seen_type_targets[alias_target] = canonical
+
+    # Check attribute aliases
+    seen_attr_targets = {}
+    for canonical, alias_target in attr_aliases.items():
+        if alias_target in canonical_attrs:
+            collisions.append({"kind": "attribute", "alias": alias_target, "canonical": canonical, "collision_with": alias_target})
+        elif alias_target in seen_attr_targets and seen_attr_targets[alias_target] != canonical:
+            collisions.append({"kind": "attribute", "alias": alias_target, "canonical": canonical, "collision_with": f"alias for '{seen_attr_targets[alias_target]}'"})
+        else:
+            seen_attr_targets[alias_target] = canonical
+
+    # Check relationship aliases
+    seen_rel_targets = {}
+    for canonical, alias_target in rel_aliases.items():
+        if alias_target in canonical_rels:
+            collisions.append({"kind": "relationship", "alias": alias_target, "canonical": canonical, "collision_with": alias_target})
+        elif alias_target in seen_rel_targets and seen_rel_targets[alias_target] != canonical:
+            collisions.append({"kind": "relationship", "alias": alias_target, "canonical": canonical, "collision_with": f"alias for '{seen_rel_targets[alias_target]}'"})
+        else:
+            seen_rel_targets[alias_target] = canonical
+
+    return collisions
+
+
+def instance_path() -> Path:
+    # 1. Explicit env var
+    ip = os.environ.get("SUBSTRATE_PATH")
+    if ip:
+        return Path(ip).expanduser().resolve()
+    # 2. CWD detection — walk up to find a Substrate workspace
+    found = _find_workspace_from_cwd()
+    if found:
+        return found
+    # 3. Default
+    default = Path("~/substrate").expanduser()
+    if default.exists():
+        return default
+    return Path.cwd()
+
+
+def engine_path(workspace: Path | None = None) -> Path:
+    # 1. Explicit env var
+    ep = os.environ.get("SUBSTRATE_ENGINE_PATH")
+    if ep:
+        return Path(ep).expanduser().resolve()
+    # 2. Workspace overlay.yaml
+    ws = workspace if workspace is not None else instance_path()
+    overlay_engine = _engine_from_overlay(ws)
+    if overlay_engine:
+        return overlay_engine
+    # 3. Default installed engine
+    pulled = Path("~/.substrate/engine").expanduser()
+    if pulled.exists():
+        return pulled
+    # 4. Dev fallback: CLI lives at {engine}/cli/substrate
+    return Path(__file__).resolve().parents[1]
+
+
+def script(name: str) -> Path:
+    return engine_path() / "_system" / "scripts" / name
+
+
+def run(script_name: str, args: list[str], stdin_json=None) -> None:
+    ip = instance_path()
+    ep = engine_path(ip)
+    env = {
+        **os.environ,
+        "SUBSTRATE_PATH": str(ip),
+        "SUBSTRATE_ENGINE_PATH": str(ep),
+    }
+    s = script(script_name)
+    if not s.exists():
+        print(f"substrate: script not found: {s}", file=sys.stderr)
+        sys.exit(2)
+    cmd = ["python3", str(s)] + args
+    result = subprocess.run(
+        cmd,
+        env=env,
+        input=json.dumps(stdin_json) if stdin_json is not None else None,
+        text=True,
+    )
+    sys.exit(result.returncode)
+
+
+# ---------------------------------------------------------------------------
+# Entity subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_entity_create(rest: list[str]) -> None:
+    # Resolve type alias for --type flag
+    new_rest = list(rest)
+    for i, arg in enumerate(new_rest):
+        if arg == "--type" and i + 1 < len(new_rest):
+            aliases = _load_overlay().get("aliases", {})
+            new_rest[i + 1] = _resolve_type_alias(new_rest[i + 1], aliases)
+            break
+    run("create-entity.py", new_rest)
+
+
+def cmd_entity_update(rest: list[str]) -> None:
+    if not rest or rest[0].startswith("-"):
+        print("Usage: substrate entity update UUID [flags...]", file=sys.stderr)
+        sys.exit(1)
+    run("update-entity.py", rest)
+
+
+def cmd_entity_get(rest: list[str]) -> None:
+    if not rest:
+        print("Usage: substrate entity get UUID", file=sys.stderr)
+        sys.exit(1)
+    run("query.py", ["entity", rest[0]])
+
+
+def cmd_entity_delete(rest: list[str]) -> None:
+    if not rest:
+        print("Usage: substrate entity delete UUID [--force]", file=sys.stderr)
+        sys.exit(1)
+    run("delete-entity.py", rest)
+
+
+# ---------------------------------------------------------------------------
+# Query subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_query(rest: list[str]) -> None:
+    """Catch-all: passes any subcommand directly to query.py."""
+    run("query.py", rest)
+
+
+def cmd_query_find(rest: list[str]) -> None:
+    run("query.py", ["find"] + rest)
+
+
+def cmd_query_type(rest: list[str]) -> None:
+    if not rest:
+        print("Usage: substrate query type TYPE", file=sys.stderr)
+        sys.exit(1)
+    aliases = _load_overlay().get("aliases", {})
+    resolved = _resolve_type_alias(rest[0], aliases)
+    run("query.py", ["type", resolved] + rest[1:])
+
+
+def cmd_query_stats(_rest: list[str]) -> None:
+    run("query.py", ["stats"])
+
+
+def cmd_query_entity(rest: list[str]) -> None:
+    if not rest:
+        print("Usage: substrate query entity UUID", file=sys.stderr)
+        sys.exit(1)
+    run("query.py", ["entity", rest[0]])
+
+
+def cmd_query_workable(_rest: list[str]) -> None:
+    run("query.py", ["workable"])
+
+
+def cmd_query_relationships(rest: list[str]) -> None:
+    if not rest:
+        print("Usage: substrate query relationships UUID", file=sys.stderr)
+        sys.exit(1)
+    run("query.py", ["relationships", rest[0]])
+
+
+# ---------------------------------------------------------------------------
+# Schema add subcommands  (translate CLI flags → JSON stdin)
+# ---------------------------------------------------------------------------
+
+def cmd_schema_add_type(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema add type")
+    p.add_argument("name")
+    p.add_argument("--grouping", required=True)
+    p.add_argument("--description", default="")
+    args = p.parse_args(rest)
+    payload = {"name": args.name, "grouping": args.grouping}
+    if args.description:
+        payload["description"] = args.description
+    run("schema-add-type.py", [], stdin_json=payload)
+
+
+def cmd_schema_add_attribute(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema add attribute")
+    p.add_argument("name")
+    p.add_argument("--on", dest="on_types", default="")
+    p.add_argument("--data-type", default="string")
+    p.add_argument("--description", default="")
+    p.add_argument("--required", action="store_true")
+    p.add_argument("--values", default="")
+    args = p.parse_args(rest)
+
+    payload: dict = {"name": args.name, "data_type": args.data_type}
+    if args.description:
+        payload["description"] = args.description
+    if args.values:
+        payload["values"] = [v.strip() for v in args.values.split(",")]
+    if args.on_types:
+        types = [t.strip() for t in args.on_types.split(",")]
+        tier = "required" if args.required else "preferred"
+        payload["access"] = {tier: {"types": types}}
+    run("schema-add-attribute.py", [], stdin_json=payload)
+
+
+def cmd_schema_add_relationship(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema add relationship")
+    p.add_argument("name")
+    p.add_argument("--inverse", required=True)
+    p.add_argument("--category", required=True)
+    p.add_argument("--description", default="")
+    p.add_argument("--notes", default="")
+    args = p.parse_args(rest)
+
+    payload: dict = {
+        "name": args.name,
+        "inverse": args.inverse,
+        "category": args.category,
+    }
+    if args.description:
+        payload["description"] = args.description
+    if args.notes:
+        payload["notes"] = args.notes
+    run("schema-add-relationship.py", [], stdin_json=payload)
+
+
+def cmd_schema_add_grouping(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema add grouping")
+    p.add_argument("name")
+    p.add_argument("--nature", required=True)
+    p.add_argument("--description", default="")
+    args = p.parse_args(rest)
+    payload: dict = {"name": args.name, "nature": [args.nature]}
+    if args.description:
+        payload["description"] = args.description
+    run("schema-add-grouping.py", [], stdin_json=payload)
+
+
+# ---------------------------------------------------------------------------
+# Schema update subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_schema_update_type(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema update type")
+    p.add_argument("name")
+    p.add_argument("--description", required=True)
+    args = p.parse_args(rest)
+    run("schema-update-type.py", [], stdin_json={"name": args.name, "description": args.description})
+
+
+def cmd_schema_update_grouping(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema update grouping")
+    p.add_argument("name")
+    p.add_argument("--description", required=True)
+    args = p.parse_args(rest)
+    run("schema-update-grouping.py", [], stdin_json={"name": args.name, "description": args.description})
+
+
+def cmd_schema_update_relationship(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema update relationship")
+    p.add_argument("name")
+    p.add_argument("--description", default="")
+    p.add_argument("--notes", default="")
+    args = p.parse_args(rest)
+    payload: dict = {"name": args.name}
+    if args.description:
+        payload["description"] = args.description
+    if args.notes:
+        payload["notes"] = args.notes
+    if len(payload) == 1:
+        print("substrate schema update relationship: at least one of --description or --notes required", file=sys.stderr)
+        sys.exit(1)
+    run("schema-update-relationship.py", [], stdin_json=payload)
+
+
+def cmd_schema_update_attribute(rest: list[str]) -> None:
+    p = argparse.ArgumentParser(prog="substrate schema update attribute")
+    p.add_argument("name")
+    p.add_argument("--description", default="")
+    p.add_argument("--values", default="")
+    p.add_argument("--required", choices=["true", "false"], default="")
+    args = p.parse_args(rest)
+    payload: dict = {"name": args.name}
+    if args.description:
+        payload["description"] = args.description
+    if args.values:
+        payload["values"] = [v.strip() for v in args.values.split(",")]
+    if args.required:
+        payload["required"] = args.required == "true"
+    if len(payload) == 1:
+        print("substrate schema update attribute: at least one of --description, --values, or --required required", file=sys.stderr)
+        sys.exit(1)
+    run("schema-update-attribute.py", [], stdin_json=payload)
+
+
+def _get_schema_for_alias():
+    """Load schema for alias collision checking."""
+    ip = instance_path()
+    ep = engine_path(ip)
+    scripts_dir = str(ep / "_system" / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    from schema import load_schema as _ls
+    return _ls(str(ip))
+
+
+def _get_canonical_names(schema, kind: str) -> set:
+    """Return all canonical names for the given kind."""
+    if kind == "type":
+        return set(schema.known_types)
+    elif kind == "attribute":
+        names = set()
+        names.update(schema.attributes.get("attributes", {}).keys())
+        names.update(schema.attributes.get("universal", {}).keys())
+        for block_def in schema.attributes.get("blocks", {}).values():
+            names.update(block_def.get("fields", {}).keys())
+        names.update(schema.attributes.get("dimensions", {}).keys())
+        return names
+    elif kind == "relationship":
+        return set(schema.relationship_names)
+    return set()
+
+
+def cmd_schema_alias(rest: list[str]) -> None:
+    """substrate schema alias type|attribute|relationship CANONICAL ALIAS
+       substrate schema alias check
+    """
+    if not rest or rest[0] in ("-h", "--help"):
+        print("Usage: substrate schema alias type|attribute|relationship CANONICAL ALIAS")
+        print("       substrate schema alias check")
+        sys.exit(0)
+
+    sub = rest[0]
+
+    if sub == "check":
+        try:
+            schema = _get_schema_for_alias()
+            overlay = _load_overlay()
+            collisions = _check_alias_collisions(schema, overlay.get("aliases", {}))
+            if not collisions:
+                print(json.dumps({"status": "ok", "message": "No collisions found."}))
+            else:
+                result = []
+                for c in collisions:
+                    result.append({
+                        "kind": c["kind"],
+                        "alias": c["alias"],
+                        "canonical": c["canonical"],
+                        "collision_with": c["collision_with"],
+                        "fix": f"substrate schema unalias {c['kind']} {c['canonical']}",
+                    })
+                print(json.dumps({"status": "collisions", "collisions": result}, indent=2))
+        except Exception as exc:
+            print(json.dumps({"error": str(exc)}))
+            sys.exit(1)
+        return
+
+    if len(rest) < 3:
+        print("Usage: substrate schema alias type|attribute|relationship CANONICAL ALIAS", file=sys.stderr)
+        sys.exit(1)
+
+    kind = sub
+    canonical = rest[1]
+    alias_target = rest[2]
+
+    if kind not in ("type", "attribute", "relationship"):
+        print(f"substrate schema alias: unknown kind '{kind}' — must be type, attribute, or relationship", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        schema = _get_schema_for_alias()
+    except Exception as exc:
+        print(json.dumps({"error": f"Could not load schema: {exc}"}))
+        sys.exit(1)
+
+    # Validate canonical exists
+    canonical_names = _get_canonical_names(schema, kind)
+    if canonical not in canonical_names:
+        print(json.dumps({"error": f"Canonical {kind} '{canonical}' not found in schema."}))
+        sys.exit(1)
+
+    # Load existing aliases
+    overlay = _load_overlay()
+    aliases = overlay.get("aliases", {})
+    if not isinstance(aliases, dict):
+        aliases = {}
+
+    kind_key = kind + "s"  # type -> types, attribute -> attributes, relationship -> relationships
+    kind_aliases = aliases.get(kind_key, {})
+    if not isinstance(kind_aliases, dict):
+        kind_aliases = {}
+
+    # Collision check: alias target must not match any canonical name
+    if alias_target in canonical_names:
+        print(json.dumps({"error": f"Alias target '{alias_target}' conflicts with a canonical {kind} name."}))
+        sys.exit(1)
+
+    # Alias target must not already be used by a different canonical
+    for existing_canonical, existing_alias in kind_aliases.items():
+        if existing_alias == alias_target and existing_canonical != canonical:
+            print(json.dumps({"error": f"Alias target '{alias_target}' is already used for {kind} '{existing_canonical}'."}))
+            sys.exit(1)
+
+    # Write
+    kind_aliases[canonical] = alias_target
+    aliases[kind_key] = kind_aliases
+    overlay["aliases"] = aliases
+    _save_overlay(overlay)
+
+    print(json.dumps({"status": "ok", "kind": kind, "canonical": canonical, "alias": alias_target}))
+
+
+def cmd_schema_unalias(rest: list[str]) -> None:
+    """substrate schema unalias type|attribute|relationship CANONICAL"""
+    if len(rest) < 2:
+        print("Usage: substrate schema unalias type|attribute|relationship CANONICAL", file=sys.stderr)
+        sys.exit(1)
+
+    kind = rest[0]
+    canonical = rest[1]
+
+    if kind not in ("type", "attribute", "relationship"):
+        print(f"substrate schema unalias: unknown kind '{kind}' — must be type, attribute, or relationship", file=sys.stderr)
+        sys.exit(1)
+
+    overlay = _load_overlay()
+    aliases = overlay.get("aliases", {})
+    if not isinstance(aliases, dict):
+        aliases = {}
+
+    kind_key = kind + "s"
+    kind_aliases = aliases.get(kind_key, {})
+    if not isinstance(kind_aliases, dict) or canonical not in kind_aliases:
+        print(json.dumps({"error": f"No alias found for {kind} '{canonical}'."}))
+        sys.exit(1)
+
+    removed_alias = kind_aliases.pop(canonical)
+    aliases[kind_key] = kind_aliases
+    overlay["aliases"] = aliases
+    _save_overlay(overlay)
+
+    print(json.dumps({"status": "ok", "kind": kind, "canonical": canonical, "removed_alias": removed_alias}))
+
+
+def cmd_schema_hide(rest: list[str]) -> None:
+    """substrate schema hide type|attribute|relationship NAME"""
+    if len(rest) < 2:
+        print("Usage: substrate schema hide type|attribute|relationship NAME", file=sys.stderr)
+        sys.exit(1)
+
+    kind = rest[0]
+    name = rest[1]
+
+    if kind not in ("type", "attribute", "relationship"):
+        print(f"substrate schema hide: unknown kind '{kind}' — must be type, attribute, or relationship", file=sys.stderr)
+        sys.exit(1)
+
+    overlay = _load_overlay()
+    hidden = overlay.get("hidden", {})
+    if not isinstance(hidden, dict):
+        hidden = {}
+
+    kind_key = kind + "s"
+    kind_list = hidden.get(kind_key, [])
+    if not isinstance(kind_list, list):
+        kind_list = []
+
+    if name not in kind_list:
+        kind_list.append(name)
+    hidden[kind_key] = kind_list
+    overlay["hidden"] = hidden
+    _save_overlay(overlay)
+
+    print(json.dumps({"status": "ok", "kind": kind, "name": name, "hidden": True}))
+
+
+def cmd_schema_unhide(rest: list[str]) -> None:
+    """substrate schema unhide type|attribute|relationship NAME"""
+    if len(rest) < 2:
+        print("Usage: substrate schema unhide type|attribute|relationship NAME", file=sys.stderr)
+        sys.exit(1)
+
+    kind = rest[0]
+    name = rest[1]
+
+    if kind not in ("type", "attribute", "relationship"):
+        print(f"substrate schema unhide: unknown kind '{kind}' — must be type, attribute, or relationship", file=sys.stderr)
+        sys.exit(1)
+
+    overlay = _load_overlay()
+    hidden = overlay.get("hidden", {})
+    if not isinstance(hidden, dict):
+        hidden = {}
+
+    kind_key = kind + "s"
+    kind_list = hidden.get(kind_key, [])
+    if not isinstance(kind_list, list):
+        kind_list = []
+
+    if name not in kind_list:
+        print(json.dumps({"error": f"'{name}' is not hidden."}))
+        sys.exit(1)
+
+    kind_list.remove(name)
+    hidden[kind_key] = kind_list
+    overlay["hidden"] = hidden
+    _save_overlay(overlay)
+
+    print(json.dumps({"status": "ok", "kind": kind, "name": name, "hidden": False}))
+
+
+def cmd_schema_delete(rest: list[str]) -> None:
+    if len(rest) < 2:
+        print("Usage: substrate schema delete <type|attribute|relationship|grouping|dimension> NAME", file=sys.stderr)
+        sys.exit(1)
+    kind, name = rest[0], rest[1]
+    script_map = {
+        "type": "schema-delete-type.py",
+        "attribute": "schema-delete-attribute.py",
+        "relationship": "schema-delete-relationship.py",
+        "grouping": "schema-delete-grouping.py",
+        "dimension": "schema-delete-dimension.py",
+    }
+    if kind not in script_map:
+        print(f"substrate schema delete: unknown kind '{kind}'", file=sys.stderr)
+        sys.exit(1)
+    run(script_map[kind], [name])
+
+
+# ---------------------------------------------------------------------------
+# Triggers / services
+# ---------------------------------------------------------------------------
+
+def cmd_triggers(rest: list[str]) -> None:
+    sub = rest[0] if rest else ""
+    if sub == "evaluate":
+        run("evaluate-triggers.py", rest[1:])
+    elif sub == "watch":
+        run("entity-watcher.py", rest[1:])
+    else:
+        print("Usage: substrate triggers evaluate [--dry-run] [--type TYPE] [--overdue]")
+        print("       substrate triggers watch")
+        sys.exit(0 if sub in ("-h", "--help") else 1)
+
+
+# Coordination — file-level claims and system locks
+# ---------------------------------------------------------------------------
+
+def cmd_lock(rest: list[str]) -> None:
+    run("system-lock.py", rest)
+
+
+def cmd_claim(rest: list[str]) -> None:
+    run("file-claim.py", rest)
+
+
+# ---------------------------------------------------------------------------
+# Validate / index subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_validate(rest: list[str]) -> None:
+    if rest and rest[0] == "schema":
+        run("validate_schema.py", rest[1:])
+    else:
+        run("validate.py", rest)
+
+
+def cmd_index_rebuild(_rest: list[str]) -> None:
+    run("migrate-to-sqlite.py", [])
+
+
+# ---------------------------------------------------------------------------
+# Context — serve engine content docs to agents
+# ---------------------------------------------------------------------------
+
+def cmd_context(rest: list[str]) -> None:
+    if not rest or rest[0] in ("-h", "--help"):
+        print("Usage: substrate context <doc-name>")
+        print("       substrate context list")
+        print("       substrate context context-stack [level]   (default level: L0)")
+        sys.exit(0)
+
+    ip = instance_path()
+    ep = engine_path(ip)
+
+    if rest[0] == "list":
+        names = set()
+        docs_dir = ep / "_system" / "docs"
+        skills_dir = ip / ".claude" / "skills"
+        if docs_dir.exists():
+            for f in docs_dir.glob("*.md"):
+                names.add(f.stem)
+        if skills_dir.exists():
+            for d in skills_dir.iterdir():
+                if d.is_dir() and (d / "SKILL.md").exists():
+                    names.add(d.name)
+        for name in sorted(names):
+            print(name)
+        return
+
+    name = rest[0]
+
+    # Special case: context-stack runs the workspace context stack query
+    if name == "context-stack":
+        level = rest[1] if len(rest) > 1 else "L0"
+        script = ep / "_system" / "scripts" / "query-context-stack.py"
+        if not script.exists():
+            print("substrate context: context-stack script not found in engine", file=sys.stderr)
+            sys.exit(1)
+        env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+        result = subprocess.run(
+            [sys.executable, str(script), "boot", level, "--content"],
+            env=env,
+        )
+        sys.exit(result.returncode)
+
+    # Engine docs (agent-orientation, decision-record-structure, etc.)
+    doc_path = ep / "_system" / "docs" / f"{name}.md"
+    if doc_path.exists():
+        print(doc_path.read_text(), end="")
+        return
+
+    # Workspace skills
+    skill_path = ip / ".claude" / "skills" / name / "SKILL.md"
+    if skill_path.exists():
+        print(skill_path.read_text(), end="")
+        return
+
+    print(f"substrate context: '{name}' not found", file=sys.stderr)
+    print(f"Run 'substrate context list' to see available docs and skills.", file=sys.stderr)
+    sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Init — create a new instance workspace
+# ---------------------------------------------------------------------------
+
+def _substrate_config_path() -> Path:
+    return Path("~/.substrate/config.yaml").expanduser()
+
+
+def _read_update_channel() -> str:
+    """Read update_channel from ~/.substrate/config.yaml; default to 'main'."""
+    config = _substrate_config_path()
+    if not config.exists():
+        return "main"
+    try:
+        import yaml
+        data = yaml.safe_load(config.read_text()) or {}
+        channel = data.get("update_channel", "main")
+        return channel if channel in ("main", "dev") else "main"
+    except Exception:
+        return "main"
+
+
+def _set_update_channel(channel: str) -> None:
+    """Write update_channel into ~/.substrate/config.yaml."""
+    import yaml
+    config = _substrate_config_path()
+    config.parent.mkdir(parents=True, exist_ok=True)
+    data = {}
+    if config.exists():
+        data = yaml.safe_load(config.read_text()) or {}
+    data["update_channel"] = channel
+    config.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+
+
+def _is_substrate_instance(path: Path) -> bool:
+    return (path / "CLAUDE.md").exists() and (path / "entities").exists()
+
+
+def _setup_venv(target: Path) -> None:
+    """Create _system/venv and install watchdog for entity-watcher."""
+    venv = target / "_system" / "venv"
+    if not venv.exists():
+        result = subprocess.run([sys.executable, "-m", "venv", str(venv)], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  ! venv creation failed — entity-watcher won't start: {result.stderr.strip()}")
+            return
+    pip = venv / "bin" / "pip"
+    result = subprocess.run([str(pip), "install", "watchdog", "--quiet"], capture_output=True, text=True)
+    if result.returncode == 0:
+        print("  ✓ venv: watchdog installed (entity-watcher)")
+    else:
+        print(f"  ! watchdog install failed: {result.stderr.strip()}")
+
+
+def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> None:
+    """Generate service unit files from deploy templates and install them."""
+    import platform
+
+    deploy_dir = ep / "_system" / "deploy"
+    if not deploy_dir.exists():
+        return
+
+    home = Path.home()
+    substrate_bin = Path(sys.argv[0]).resolve()
+    subs = {
+        "__WORKSPACE__": str(target),
+        "__ENGINE__":    str(ep),
+        "__HOME__":      str(home),
+        "__USER__":      os.environ.get("USER", home.name),
+        "__SUBSTRATE__": str(substrate_bin),
+    }
+
+    def apply_subs(text: str) -> str:
+        for k, v in subs.items():
+            text = text.replace(k, v)
+        return text
+
+    system = platform.system()
+
+    if system == "Darwin":
+        agents_dir = home / "Library" / "LaunchAgents"
+        agents_dir.mkdir(parents=True, exist_ok=True)
+        uid = os.getuid()
+        domain = f"gui/{uid}"
+
+        for template in sorted(deploy_dir.glob("com.substrate.*.plist")):
+            label = template.stem
+            dest = agents_dir / template.name
+
+            if dest.exists() and not reinstall:
+                print(f"  • {label}: already installed (skipping — use --reinit to update)")
+                continue
+
+            dest.write_text(apply_subs(template.read_text()))
+
+            if reinstall:
+                subprocess.run(["launchctl", "bootout", f"{domain}/{label}"],
+                               capture_output=True)
+            result = subprocess.run(["launchctl", "bootstrap", domain, str(dest)],
+                                    capture_output=True, text=True)
+            if result.returncode == 0:
+                print(f"  ✓ {label}: installed and loaded")
+            else:
+                print(f"  ✓ {label}: installed (load failed — may need manual: "
+                      f"launchctl bootstrap {domain} {dest})")
+
+    elif system == "Linux":
+        user_systemd = home / ".config" / "systemd" / "user"
+        user_systemd.mkdir(parents=True, exist_ok=True)
+
+        for template in sorted(deploy_dir.glob("substrate-*.service")):
+            dest = user_systemd / template.name
+            dest.write_text(apply_subs(template.read_text()))
+            print(f"  ✓ {template.name}: written to {dest}")
+
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+        print("  Run: systemctl --user enable --now substrate-entity-watcher")
+
+    elif system == "Windows":
+        _install_services_windows(target, ep, home, substrate_bin, reinstall)
+
+    else:
+        print(f"  (service installation not supported on {system})")
+
+
+def _install_services_windows(
+    target: Path, ep: Path, home: Path, substrate_bin: Path, reinstall: bool
+) -> None:
+    """Register Substrate background services as Windows Task Scheduler tasks.
+
+    entity-watcher: runs at logon, restarts on failure (equivalent of launchd KeepAlive).
+    evaluate-triggers: runs every 5 minutes (equivalent of launchd StartInterval 300).
+
+    Both use generated .cmd wrappers to set SUBSTRATE_PATH and SUBSTRATE_ENGINE_PATH
+    before launching, since Task Scheduler tasks don't have a native env-vars block.
+    """
+    logs_dir = target / "_system" / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    venv_python = target / "_system" / "venv" / "Scripts" / "python.exe"
+    local_bin = home / ".local" / "bin"
+    substrate_bat = local_bin / "substrate.bat"
+
+    tasks = [
+        {
+            "label": "substrate-entity-watcher",
+            "task_name": "Substrate\\EntityWatcher",
+            "cmd_name": "_run-entity-watcher.cmd",
+            "cmd_body": (
+                f'@echo off\n'
+                f'set SUBSTRATE_PATH={target}\n'
+                f'set SUBSTRATE_ENGINE_PATH={ep}\n'
+                f'"{venv_python}" "{ep / "_system" / "scripts" / "entity-watcher.py"}"\n'
+            ),
+            "xml": lambda cmd_path: _entity_watcher_xml(cmd_path, target, logs_dir),
+            "start_immediately": True,
+        },
+        {
+            "label": "substrate-evaluate-triggers",
+            "task_name": "Substrate\\EvaluateTriggers",
+            "cmd_name": "_run-evaluate-triggers.cmd",
+            "cmd_body": (
+                f'@echo off\n'
+                f'set SUBSTRATE_PATH={target}\n'
+                f'set SUBSTRATE_ENGINE_PATH={ep}\n'
+                f'set PATH={local_bin};%PATH%\n'
+                f'"{substrate_bat}" triggers evaluate\n'
+            ),
+            "xml": lambda cmd_path: _evaluate_triggers_xml(cmd_path, target, logs_dir),
+            "start_immediately": False,
+        },
+    ]
+
+    for task in tasks:
+        cmd_path = target / "_system" / "scripts" / task["cmd_name"]
+        cmd_path.write_text(task["cmd_body"], encoding="utf-8")
+
+        xml_content = task["xml"](cmd_path)
+        xml_path = target / "_system" / f'_task_{task["label"]}.xml'
+        xml_path.write_text(xml_content, encoding="utf-16")
+
+        if reinstall:
+            subprocess.run(
+                ["schtasks", "/Delete", "/TN", task["task_name"], "/F"],
+                capture_output=True,
+            )
+
+        r = subprocess.run(
+            ["schtasks", "/Create", "/TN", task["task_name"], "/XML", str(xml_path), "/F"],
+            capture_output=True, text=True,
+        )
+        xml_path.unlink(missing_ok=True)
+
+        if r.returncode == 0:
+            print(f"  ✓ {task['label']}: installed")
+            if task["start_immediately"]:
+                subprocess.run(
+                    ["schtasks", "/Run", "/TN", task["task_name"]],
+                    capture_output=True,
+                )
+        else:
+            print(f"  ! {task['label']}: install failed — {r.stderr.strip()}")
+
+
+def _entity_watcher_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Substrate entity watcher — auto-bumps last_edited on entity content changes</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{cmd_path}</Command>
+      <WorkingDirectory>{workspace}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"""
+
+
+def _evaluate_triggers_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Substrate trigger evaluator — runs every 5 minutes</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <TimeTrigger>
+      <Repetition>
+        <Interval>PT5M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <StartBoundary>2000-01-01T00:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT10M</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{cmd_path}</Command>
+      <WorkingDirectory>{workspace}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"""
+
+
+def _link_skills(engine_skills: Path, instance_skills: Path) -> None:
+    """Link instance .claude/skills/ to the engine skills directory.
+
+    Uses a symlink on macOS/Linux and a directory junction on Windows (no admin
+    or Developer Mode required). Replaces legacy copied directories transparently.
+    """
+    if not engine_skills.exists():
+        return
+    if instance_skills.is_symlink():
+        if instance_skills.resolve() == engine_skills.resolve():
+            return  # already correct
+        instance_skills.unlink()
+    elif instance_skills.exists():
+        import shutil as _sh
+        _sh.rmtree(instance_skills)
+    instance_skills.parent.mkdir(parents=True, exist_ok=True)
+    if sys.platform == "win32":
+        subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(instance_skills), str(engine_skills)],
+            check=True, capture_output=True,
+        )
+    else:
+        instance_skills.symlink_to(engine_skills)
+
+
+def cmd_init(rest: list[str]) -> None:
+    import textwrap
+
+    p = argparse.ArgumentParser(prog="substrate init")
+    p.add_argument("path", nargs="?", default=str(Path("~/substrate").expanduser()),
+                   help="Instance directory to create (default: ~/substrate)")
+    p.add_argument("--reinit", action="store_true",
+                   help="Refresh CLAUDE.md and rebuild index on an existing instance")
+    p.add_argument("--force", action="store_true",
+                   help="Create instance in a non-empty non-Substrate directory")
+    p.add_argument("--no-services", action="store_true",
+                   help="Skip background service installation")
+    args = p.parse_args(rest)
+
+    target = Path(args.path).expanduser().resolve()
+
+    if target.exists() and _is_substrate_instance(target) and not args.reinit:
+        print(f"substrate init: '{target}' is already a Substrate instance.")
+        print(f"  To use it:        export SUBSTRATE_PATH={target}")
+        print(f"  To refresh it:    substrate init {target} --reinit")
+        sys.exit(1)
+
+    if target.exists() and not _is_substrate_instance(target) and any(target.iterdir()) and not args.force:
+        print(f"substrate init: '{target}' exists and is not empty.")
+        print("  If it's a different project, choose a different path.")
+        print(f"  To force creation here: substrate init {target} --force")
+        sys.exit(1)
+
+    ep = engine_path()
+
+    # Create instance directory structure
+    (target / "entities").mkdir(parents=True, exist_ok=True)
+    (target / "assets").mkdir(exist_ok=True)
+    (target / "staging").mkdir(exist_ok=True)
+    (target / "builds").mkdir(exist_ok=True)
+    (target / "_system" / "index").mkdir(parents=True, exist_ok=True)  # ephemeral db lives here
+
+    # Write overlay.yaml inside _system/ (only if it doesn't exist — don't clobber customizations)
+    overlay = target / "_system" / "overlay.yaml"
+    if not overlay.exists():
+        overlay.write_text(textwrap.dedent("""\
+            # Substrate workspace overlay
+            # Custom types, attributes, and relationships live in _system/schema-user/
+            # Use: substrate schema add type/attribute/relationship/grouping
+
+            # Rename schema elements for display and CLI input in this workspace.
+            # Use: substrate schema alias type|attribute|relationship CANONICAL ALIAS
+            aliases:
+              types: {}
+              attributes: {}
+              relationships: {}
+
+            # Suppress schema elements from listings and pickers.
+            # Use: substrate schema hide type|attribute|relationship NAME
+            hidden:
+              types: []
+              attributes: []
+              relationships: []
+        """))
+
+    # Link skills from engine into instance
+    _link_skills(ep / "_system" / "skills", target / ".claude" / "skills")
+
+    # Write CLAUDE.md — always refresh from engine (it's a bootstrap, not user content)
+    claude_md_src = ep / "CLAUDE.md"
+    if claude_md_src.exists():
+        (target / "CLAUDE.md").write_text(claude_md_src.read_text())
+    else:
+        (target / "CLAUDE.md").write_text(textwrap.dedent("""\
+            # Substrate
+
+            Run the following at the start of every session to get your orientation:
+
+            ```bash
+            substrate context agent-orientation
+            ```
+        """))
+
+    # Bootstrap the SQLite index
+    env = {**os.environ, "SUBSTRATE_PATH": str(target)}
+    s = script("migrate-to-sqlite.py")
+    if s.exists():
+        subprocess.run(["python3", str(s)], env=env, check=False)
+
+    if args.reinit:
+        print(f"Instance refreshed at {target}")
+    else:
+        print(f"Instance created at {target}")
+
+    if not args.no_services:
+        print("\nInstalling background services...")
+        _install_services(target, ep, reinstall=args.reinit)
+        _setup_venv(target)
+
+    print()
+    print("Next steps:")
+    print(f"  export SUBSTRATE_PATH={target}")
+    print(f"  cd {target}")
+    print("  substrate query stats")
+
+
+
+
+def cmd_start(rest: list[str]) -> None:
+    """
+    Start Surface (and optionally Relay) against this instance.
+
+    Usage:
+      substrate start                            # Surface on port 3002
+      substrate start relay                      # Relay on port 3001
+      substrate start surface relay              # both on default ports
+      substrate start surface relay --surface-port 3010 --relay-port 3011
+
+    Env overrides:
+      PORT                     Override port (single-component start only)
+      SUBSTRATE_AUTH_PASSWORD  Set UI password (skip for local dev)
+    """
+    p = argparse.ArgumentParser(prog="substrate start", add_help=False)
+    p.add_argument("components", nargs="*")
+    p.add_argument("--surface-port", default=None)
+    p.add_argument("--relay-port", default=None)
+    p.add_argument("-h", "--help", action="store_true")
+    args = p.parse_args(rest)
+
+    if args.help:
+        print("Usage: substrate start [surface] [relay] [--surface-port N] [--relay-port N]")
+        print("  Starts Surface (port 3002) and Relay (port 3001) by default.")
+        print("  Use --surface-port / --relay-port to run on alternate ports.")
+        print("  Env: PORT (single component only), SUBSTRATE_AUTH_PASSWORD")
+        sys.exit(0)
+
+    ep = engine_path()
+    ip = instance_path()
+
+    web_dir = ep / "web"
+    if not web_dir.exists():
+        print("Error: web/ not found in engine — run 'substrate update'.", file=sys.stderr)
+        sys.exit(1)
+
+    components = args.components if args.components else ["surface", "relay"]
+    default_ports = {"surface": "3002", "relay": "3001"}
+    port_overrides = {"surface": args.surface_port, "relay": args.relay_port}
+
+    procs: list[tuple[str, "subprocess.Popen[bytes]"]] = []
+
+    for component in components:
+        comp_dir = web_dir / component
+        if not comp_dir.exists():
+            print(f"Error: web/{component} not found in engine.", file=sys.stderr)
+            sys.exit(1)
+
+        node_modules = comp_dir / "node_modules"
+        if not node_modules.exists():
+            print(f"Installing {component} dependencies (first run)...")
+            result = subprocess.run(["npm", "install", "--silent"], cwd=comp_dir)
+            if result.returncode != 0:
+                print(f"Error: npm install failed for {component}.", file=sys.stderr)
+                sys.exit(1)
+
+        dist_dir = comp_dir / "dist"
+        if not dist_dir.exists():
+            print(f"Building {component} (first run)...")
+            result = subprocess.run(["npm", "run", "build"], cwd=comp_dir)
+            if result.returncode != 0:
+                print(f"Error: build failed for {component}.", file=sys.stderr)
+                sys.exit(1)
+
+        tsx = comp_dir / "node_modules" / ".bin" / "tsx"
+        if not tsx.exists():
+            print(f"Error: tsx not found in {comp_dir}/node_modules/.bin/", file=sys.stderr)
+            sys.exit(1)
+
+        if port_overrides.get(component):
+            port = port_overrides[component]
+        elif len(components) == 1:
+            port = os.environ.get("PORT") or default_ports.get(component, "3000")
+        else:
+            port = default_ports.get(component, "3000")
+
+        actual_port, remapped = _find_free_port(int(port))
+        if remapped:
+            print(f"  ⚠  Port {port} in use — using {actual_port} instead.")
+        port = str(actual_port)
+
+        env = {
+            **os.environ,
+            "SUBSTRATE_DIR": str(ip),
+            "SUBSTRATE_ENGINE_PATH": str(ep),
+            "PORT": port,
+            "CLAUDE_CODE_FORK_SUBAGENT": "1",
+        }
+
+        # Pass Claude auth token through if available
+        token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN") or _read_claude_oauth_token()
+        if token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = token
+        else:
+            print(f"  ⚠  CLAUDE_CODE_OAUTH_TOKEN not set — Relay chat won't work.")
+            print(f"     Run 'substrate auth' to authorize, then retry.")
+
+        proc = subprocess.Popen([str(tsx), "server/index.ts"], cwd=comp_dir, env=env)
+        procs.append((component, proc))
+        print(f"  ✓ {component} → http://localhost:{port}")
+
+    if not procs:
+        sys.exit(0)
+
+    print()
+    print("Press Ctrl+C to stop.")
+
+    import signal
+
+    def _shutdown(sig, frame):
+        print("\nStopping...")
+        for _, p in procs:
+            p.terminate()
+        for _, p in procs:
+            try:
+                p.wait(timeout=5)
+            except Exception:
+                p.kill()
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    # Wait for all processes; if any exits unexpectedly, stop the rest
+    while True:
+        for name, p in procs:
+            if p.poll() is not None:
+                print(f"\n{name} exited (code {p.returncode}).")
+                _shutdown(None, None)
+        import time
+        time.sleep(0.5)
+
+
+def cmd_auth(rest: list[str]) -> None:
+    """
+    Authorize Substrate to use your Claude Pro or Max subscription.
+
+    Usage:
+      substrate auth           Check status; launch OAuth flow if not authorized
+      substrate auth status    Print auth status without prompting
+      substrate auth login     Force a new OAuth login even if already authorized
+    """
+    p = argparse.ArgumentParser(prog="substrate auth", add_help=False)
+    p.add_argument("subcommand", nargs="?", default=None, choices=["status", "login"])
+    p.add_argument("-h", "--help", action="store_true")
+    args = p.parse_args(rest)
+
+    if args.help:
+        print("Usage: substrate auth [status|login]")
+        sys.exit(0)
+
+    existing = _read_claude_oauth_token()
+
+    if args.subcommand == "status":
+        if existing:
+            print(f"✓ Authorized (token: {existing[:20]}...)")
+        else:
+            print("✗ Not authorized. Run 'substrate auth' to authorize.")
+        return
+
+    if args.subcommand == "login" or not existing:
+        print("Substrate operates using your Claude Pro or Max subscription.")
+        print("Launching OAuth authorization...")
+        result = subprocess.run(["claude", "auth", "login", "--claudeai"])
+        if result.returncode != 0:
+            print("Authorization failed. Make sure 'claude' is installed and try again.", file=sys.stderr)
+            sys.exit(1)
+        # Verify the token is now present
+        token = _read_claude_oauth_token()
+        if token:
+            print(f"\n✓ Authorization confirmed.")
+        else:
+            print("\n⚠ Authorization may have succeeded but token not yet readable from keychain.")
+            print("  Try running 'substrate start' — it will pick it up from the Claude Code environment.")
+        return
+
+    # Default: already authorized
+    print(f"✓ Already authorized (token: {existing[:20]}...)")
+    print("  Run 'substrate auth login' to refresh.")
+
+
+def cmd_search(rest: list[str]) -> None:
+    """
+    Manage semantic search for this instance.
+
+    Usage:
+      substrate search setup    Install embedding model (run once after install)
+      substrate search rebuild  Rebuild the search index after bulk entity changes
+    """
+    if not rest or rest[0] in ("-h", "--help"):
+        print("Usage: substrate search <setup|rebuild>")
+        sys.exit(0)
+
+    ep = engine_path()
+    ip = instance_path()
+    sub = rest[0]
+
+    if sub == "setup":
+        s = ep / "_system" / "scripts" / "setup-search.py"
+        if not s.exists():
+            print(f"substrate: setup-search.py not found in engine", file=sys.stderr)
+            sys.exit(2)
+        env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+        result = subprocess.run(["python3", str(s)], env=env)
+        sys.exit(result.returncode)
+
+    elif sub == "rebuild":
+        s = ep / "_system" / "scripts" / "rebuild-embeddings.py"
+        if not s.exists():
+            print(f"substrate: rebuild-embeddings.py not found in engine", file=sys.stderr)
+            sys.exit(2)
+        env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+        result = subprocess.run(["python3", str(s)], env=env)
+        sys.exit(result.returncode)
+
+    else:
+        print(f"substrate search: unknown subcommand '{sub}'", file=sys.stderr)
+        print("Usage: substrate search <setup|rebuild>", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_update(_rest: list[str]) -> None:
+    ep = engine_path()
+    ip = instance_path()
+    channel = _read_update_channel()
+
+    # --- Engine update ---
+    print(f"Updating substrate engine (channel: {channel})...")
+    git_dir = ep / ".git"
+    if not git_dir.exists():
+        print("  substrate update: engine is not a git repository — cannot auto-update.")
+        print(f"  Engine path: {ep}")
+        print(f"  To update manually: git -C <engine-path> pull origin {channel}")
+        sys.exit(1)
+
+    result = subprocess.run(
+        ["git", "-C", str(ep), "pull", "--ff-only", "origin", channel],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+        sys.exit(result.returncode)
+
+    if "Already up to date" in result.stdout:
+        print(f"  ✓ Engine already up to date ({channel})")
+    else:
+        print(f"  ✓ Engine updated ({channel})")
+
+    # --- Link skills from (now-updated) engine to instance ---
+    if ip.exists():
+        _link_skills(ep / "_system" / "skills", ip / ".claude" / "skills")
+        print(f"  ✓ Skills linked")
+
+    # --- Rebuild index ---
+    env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+    s = ep / "_system" / "scripts" / "migrate-to-sqlite.py"
+    if s.exists():
+        subprocess.run(["python3", str(s)], env=env, check=False, capture_output=True)
+        print(f"  ✓ Index rebuilt")
+
+    # --- Check for alias collisions introduced by the update ---
+    try:
+        scripts_dir = str(ep / "_system" / "scripts")
+        if scripts_dir not in sys.path:
+            sys.path.insert(0, scripts_dir)
+        from schema import load_schema as _ls_upd
+        _schema_upd = _ls_upd(str(ip))
+        _overlay_upd = _load_overlay()
+        _collisions_upd = _check_alias_collisions(_schema_upd, _overlay_upd.get("aliases", {}))
+        if _collisions_upd:
+            print("\nWarning: the update introduced alias collisions in your overlay.yaml:")
+            for c in _collisions_upd:
+                print(f"  {c['kind']} alias '{c['alias']}' (for '{c['canonical']}') now conflicts with canonical name '{c['collision_with']}'")
+            print("Run 'substrate schema alias check' to review and fix.")
+    except Exception:
+        pass  # non-fatal
+
+
+def cmd_sync(_rest: list[str]) -> None:
+    """Link skills from engine to instance and rebuild the SQLite index."""
+    ep = engine_path()
+    ip = instance_path()
+
+    _link_skills(ep / "_system" / "skills", ip / ".claude" / "skills")
+    if (ep / "_system" / "skills").exists():
+        print(f"✓ Skills linked from engine")
+
+    env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+    s = ep / "_system" / "scripts" / "migrate-to-sqlite.py"
+    if s.exists():
+        subprocess.run(["python3", str(s)], env=env, check=False, capture_output=True)
+        print(f"✓ Index rebuilt")
+
+
+
+
+def cmd_channel(rest: list[str]) -> None:
+    """Show or set the engine update channel (machine-wide, not per-instance)."""
+    if not rest or rest[0] in ("-h", "--help"):
+        channel = _read_update_channel()
+        print(f"Update channel: {channel}")
+        print(f"  main  — stable releases (default)")
+        print(f"  dev   — beta/staging channel")
+        print()
+        print(f"Config: {_substrate_config_path()}")
+        print(f"To change: substrate channel set <main|dev>")
+        return
+
+    if rest[0] == "set":
+        if len(rest) < 2 or rest[1] not in ("main", "dev"):
+            print("Usage: substrate channel set <main|dev>", file=sys.stderr)
+            sys.exit(1)
+        try:
+            _set_update_channel(rest[1])
+            print(f"✓ Update channel set to '{rest[1]}'")
+            print(f"  Next `substrate update` will pull from the '{rest[1]}' branch.")
+            print(f"  Config: {_substrate_config_path()}")
+        except Exception as exc:
+            print(f"Error: could not write {_substrate_config_path()} — {exc}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        print(f"substrate channel: unknown subcommand '{rest[0]}'", file=sys.stderr)
+        print("Usage: substrate channel [set <main|dev>]", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_version(_rest: list[str]) -> None:
+    ep = engine_path()
+    # Try to get git tag / commit
+    version = "unknown"
+    try:
+        tag = subprocess.run(
+            ["git", "-C", str(ep), "describe", "--tags", "--abbrev=0"],
+            capture_output=True, text=True,
+        )
+        if tag.returncode == 0:
+            version = tag.stdout.strip()
+            # Also get short commit for precision
+            commit = subprocess.run(
+                ["git", "-C", str(ep), "rev-parse", "--short", "HEAD"],
+                capture_output=True, text=True,
+            )
+            if commit.returncode == 0:
+                version = f"{version} ({commit.stdout.strip()})"
+    except FileNotFoundError:
+        pass  # git not available
+    print(f"substrate {version}")
+    print(f"  engine:   {ep}")
+    print(f"  instance: {instance_path()}")
+
+
+# ---------------------------------------------------------------------------
+# Dispatch table
+# ---------------------------------------------------------------------------
+
+COMMANDS: dict[tuple[str, ...], callable] = {
+    # setup
+    ("init",):     cmd_init,
+    ("auth",):          cmd_auth,
+    ("search", "setup"):   cmd_search,
+    ("search", "rebuild"): cmd_search,
+    ("start",):    cmd_start,
+    ("update",):   cmd_update,
+    ("sync",):     cmd_sync,
+    ("channel",):  cmd_channel,
+    ("version",):  cmd_version,
+    # context
+    ("context",):  cmd_context,
+    # entity
+    ("entity", "create"): cmd_entity_create,
+    ("entity", "update"): cmd_entity_update,
+    ("entity", "get"):    cmd_entity_get,
+    ("entity", "delete"): cmd_entity_delete,
+    # query (catch-all first so specific 2-tuple entries still win via longest-match)
+    ("query",):                 cmd_query,
+    ("query", "find"):          cmd_query_find,
+    ("query", "type"):          cmd_query_type,
+    ("query", "stats"):         cmd_query_stats,
+    ("query", "entity"):        cmd_query_entity,
+    ("query", "workable"):      cmd_query_workable,
+    ("query", "relationships"): cmd_query_relationships,
+    # schema add
+    ("schema", "add", "type"):         cmd_schema_add_type,
+    ("schema", "add", "grouping"):     cmd_schema_add_grouping,
+    ("schema", "add", "attribute"):    cmd_schema_add_attribute,
+    ("schema", "add", "relationship"): cmd_schema_add_relationship,
+    # schema update
+    ("schema", "update", "type"):         cmd_schema_update_type,
+    ("schema", "update", "grouping"):     cmd_schema_update_grouping,
+    ("schema", "update", "relationship"): cmd_schema_update_relationship,
+    ("schema", "update", "attribute"):    cmd_schema_update_attribute,
+    # schema delete
+    ("schema", "delete"): cmd_schema_delete,
+    # schema alias / unalias / hide / unhide
+    ("schema", "alias"):   cmd_schema_alias,
+    ("schema", "unalias"): cmd_schema_unalias,
+    ("schema", "hide"):    cmd_schema_hide,
+    ("schema", "unhide"):  cmd_schema_unhide,
+    # validate
+    ("validate",):       cmd_validate,
+    # index
+    ("index", "rebuild"): cmd_index_rebuild,
+    # coordination
+    ("lock",):  cmd_lock,
+    ("claim",): cmd_claim,
+    # services
+    ("triggers",): cmd_triggers,
+}
+
+
+def print_help() -> None:
+    print("""substrate — Substrate CLI v0
+
+Usage: substrate <command> [subcommand] [args...]
+
+Setup:
+  auth                        Check auth status; launch OAuth flow if needed
+  auth status                 Print auth status without prompting
+  auth login                  Force a new OAuth login
+  init [PATH]                 Create a new instance (default: ~/substrate)
+  init PATH --reinit          Refresh CLAUDE.md and rebuild index on an existing instance
+  start [surface] [relay]     Start Surface and Relay on localhost (both by default)
+  update                      Update engine (git pull) and refresh skills link
+  sync                        Refresh skills link and rebuild index
+  search setup                Install embedding model (run once after install)
+  search rebuild              Rebuild search index after bulk entity changes
+  channel                     Show this instance's update channel (main or dev)
+  channel set <main|dev>      Switch update channel
+  version                     Print version and paths
+
+Content:
+  context <doc-name>          Print a content doc (session dir first, engine fallback)
+  context list                List available content docs
+
+Entity commands:
+  entity create  --type TYPE --name NAME [flags...]
+  entity update  UUID [flags...]
+  entity get     UUID
+  entity delete  UUID [--force]
+
+Query commands:
+  query find     PATTERN [--type TYPE]
+  query type     TYPE
+  query stats
+  query entity   UUID
+  query workable
+  query relationships UUID
+
+Schema commands:
+  schema add type         NAME --grouping GROUP [--description DESC]
+  schema add grouping     NAME --nature NATURE [--description DESC]
+  schema add attribute    NAME --on TYPE --data-type DT [--description DESC] [--values V1,V2] [--required]
+  schema add relationship NAME --inverse INV --category CAT [--description DESC] [--notes NOTES]
+  schema update type         NAME --description DESC
+  schema update grouping     NAME --description DESC
+  schema update attribute    NAME [--description DESC] [--values V1,V2] [--required true|false]
+  schema update relationship NAME [--description DESC] [--notes NOTES]
+  schema delete <type|attribute|relationship|grouping|dimension> NAME
+  schema alias  type|attribute|relationship CANONICAL ALIAS
+  schema alias  check
+  schema unalias type|attribute|relationship CANONICAL
+  schema hide   type|attribute|relationship NAME
+  schema unhide type|attribute|relationship NAME
+
+Validation:
+  validate
+  validate schema
+
+Indexing:
+  index rebuild
+
+Coordination:
+  lock acquire  --agent NAME --description TEXT [--ttl MIN]
+  lock release  --agent NAME
+  lock check
+  lock renew    --agent NAME [--ttl MIN]
+  lock status
+  claim claim   --files F1 [F2 ...] --agent NAME [--task UUID] [--ttl MIN]
+  claim release --agent NAME [--all | --files F1 F2]
+  claim check   --files F1 [F2 ...]
+  claim renew   --agent NAME [--files F1 F2] [--ttl MIN]
+  claim sweep
+  claim status  [--agent NAME] [--task UUID]
+
+Environment:
+  SUBSTRATE_ENGINE_PATH       Engine root (default: ~/.substrate/engine or CLI location)
+  SUBSTRATE_PATH              Instance root (default: ~/substrate)
+""")
+
+
+def main() -> None:
+    args = sys.argv[1:]
+
+    if not args or args[0] in ("-h", "--help", "help"):
+        print_help()
+        sys.exit(0)
+
+    # Try longest match first (3 tokens, then 2, then 1)
+    for length in (3, 2, 1):
+        key = tuple(args[:length])
+        if key in COMMANDS:
+            COMMANDS[key](args[length:])
+            return
+
+    print(f"substrate: unknown command '{' '.join(args[:2])}'", file=sys.stderr)
+    print("Run 'substrate help' for usage.", file=sys.stderr)
+    sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

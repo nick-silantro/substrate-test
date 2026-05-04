@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd unit for the Substrate entity watcher (macOS).
+
+  Placeholders — substitute before installing:
+    __WORKSPACE__   absolute path to the workspace root (e.g. /Users/alice/substrate)
+    __ENGINE__      absolute path to the engine install (e.g. /Users/alice/.substrate/engine)
+    __HOME__        user's home directory (e.g. /Users/alice)
+
+  Install:
+    sed -e 's|__WORKSPACE__|/path/to/workspace|g' \
+        -e 's|__ENGINE__|/path/to/engine|g' \
+        -e 's|__HOME__|'"$HOME"'|g' \
+        _system/deploy/com.substrate.entity-watcher.plist \
+        > ~/Library/LaunchAgents/com.substrate.entity-watcher.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.entity-watcher.plist
+
+  Uninstall:
+    launchctl bootout gui/$(id -u)/com.substrate.entity-watcher
+    rm ~/Library/LaunchAgents/com.substrate.entity-watcher.plist
+
+  Note: entity-watcher.py depends on the watchdog package. The venv must be
+  set up in __WORKSPACE__/_system/venv/ before the service will start.
+  See _system/deploy/README.md for venv setup instructions.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.substrate.entity-watcher</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__WORKSPACE__/_system/venv/bin/python3</string>
+    <string>__ENGINE__/_system/scripts/entity-watcher.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>__WORKSPACE__</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>__WORKSPACE__/_system/logs/entity-watcher.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>__WORKSPACE__/_system/logs/entity-watcher-error.log</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>__HOME__</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    <key>SUBSTRATE_PATH</key>
+    <string>__WORKSPACE__</string>
+    <key>SUBSTRATE_ENGINE_PATH</key>
+    <string>__ENGINE__</string>
+  </dict>
+</dict>
+</plist>

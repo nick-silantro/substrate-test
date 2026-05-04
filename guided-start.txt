@@ -1,0 +1,112 @@
+# Substrate — Guided Setup
+
+A user has asked you to install Substrate. This file is your briefing. Read it fully before you start, then guide the user through setup conversationally — explain what's happening at each step, watch the output, and troubleshoot anything that comes up. You are the guide; they are not doing this alone.
+
+---
+
+## What is Substrate?
+
+Substrate is a personal knowledge graph that runs on the user's machine. Entities are folders with structured metadata and content files, linked by relationships, indexed in SQLite. The graph grows through use — conversations, decisions, projects, people, ideas — all as structured, queryable objects.
+
+The mental model: a second brain that's actually organized.
+
+---
+
+## What You're Installing
+
+- **Engine** — shared scripts, schema, and skills, cloned to ~/.substrate/engine
+- **Workspace** — the user's personal instance, at ~/substrate by default
+- **CLI** — the `substrate` command, linked to a location on the user's PATH
+
+---
+
+## Prerequisites
+
+Check these before running the installer:
+
+- **Claude Code** — run `claude --version`. If missing, send them to https://claude.ai/code and wait.
+- **Python 3.9+** — run `python3 --version` (Mac/Linux) or `python --version` (Windows).
+- **Git** — run `git --version`.
+
+---
+
+## Installation
+
+Download and run the installer:
+
+**Mac / Linux:**
+```
+curl -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-core/main/cli/install.py -o install.py && python3 install.py
+```
+
+**Windows (PowerShell):**
+```
+curl.exe -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-core/main/cli/install.py -o install.py; python install.py
+```
+
+If the user wants a custom workspace location, add `--instance /path/to/workspace` to the install command.
+
+Walk them through each step as it runs:
+
+**Prerequisites** — Checks Python 3 and Git. PyYAML is installed if missing.
+
+**Engine install** — Clones the Substrate engine to `~/.substrate/engine`. On subsequent runs, pulls the latest.
+
+**CLI install** — On Mac/Linux, links the `substrate` command to a directory on the user's PATH. On Windows, creates a `substrate.bat` wrapper and adds it to the user's PATH. After install, they may need to open a new terminal for the command to become available.
+
+**Workspace setup** — Calls `substrate init` to create the instance folder, write `CLAUDE.md`, link skills into `.claude/skills/`, build the SQLite index, and install background services.
+
+**Background services:**
+- *Mac* — launchd services installed automatically (entity-watcher, evaluate-triggers)
+- *Linux* — systemd unit written; prompt the user to run: `systemctl --user enable --now substrate-entity-watcher`
+- *Windows* — Task Scheduler tasks installed automatically (EntityWatcher, EvaluateTriggers)
+
+When it prints "Substrate is ready." — you're done with install.
+
+---
+
+## Opening the Workspace
+
+Tell the user: open the Substrate folder (`~/substrate`, or whatever path they chose) as a project in Claude Code. That's it. No special setup needed.
+
+Once inside, Claude will load orientation automatically from `CLAUDE.md`. The workspace starts empty — it grows through use.
+
+---
+
+## Common Issues
+
+**"substrate: command not found"**: Open a new terminal. On Mac/Linux, run `source ~/.zshrc` if a new terminal doesn't help.
+
+**"Failed to clone engine"**: Usually a network issue. Check internet connectivity and retry.
+
+**Python not found on Windows**: Try `python` instead of `python3`. If neither works, install Python from https://python.org and make sure "Add to PATH" is checked during install.
+
+**Entity-watcher fails to start (Mac/Linux)**: The venv wasn't set up. Run:
+```
+python3 -m venv ~/substrate/_system/venv && ~/substrate/_system/venv/bin/pip install watchdog
+```
+Then restart the service:
+- *Mac*: `launchctl bootout gui/$(id -u)/com.substrate.entity-watcher && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.entity-watcher.plist`
+- *Linux*: `systemctl --user restart substrate-entity-watcher`
+
+**Entity-watcher fails to start (Windows)**: Run in PowerShell:
+```
+python -m venv $env:USERPROFILE\substrate\_system\venv
+$env:USERPROFILE\substrate\_system\venv\Scripts\pip install watchdog
+schtasks /Run /TN "Substrate\EntityWatcher"
+```
+
+---
+
+## What to Tell Them Next
+
+Once the workspace is open:
+
+- Run `substrate context agent-orientation` to load the full operational orientation for Claude.
+- Start by adding something real: a project they're working on, a person they want to track, a decision they need to make.
+- Everything is stored as files on their machine. They own it.
+
+Stay with them until they understand what the graph is and have done something in it. That's the handoff point.
+
+---
+get-substrate.com
