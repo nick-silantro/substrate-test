@@ -24,9 +24,10 @@ The mental model: a second brain that's actually organized.
 
 Check these before running the installer:
 
-- **Claude Code or Claude Co-work** — run `claude --version`. If missing, send them to https://claude.ai/code and wait.
+- **Claude Code** — run `claude --version`. If missing, send them to https://claude.ai/code and wait.
 - **Python 3.9+** — run `python3 --version` (Mac/Linux) or `python --version` (Windows).
 - **Git** — run `git --version`.
+- **Anthropic SDK** — run `python3 -c "import anthropic; print(anthropic.__version__)"`. If it errors or is missing: `pip3 install anthropic`.
 
 ---
 
@@ -44,7 +45,7 @@ curl -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-core/main/c
 curl.exe -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-core/main/cli/install.py -o install.py; python install.py
 ```
 
-If the user wants a custom workspace location, add `--instance /path/to/workspace` to the install command.
+Before running the installer, ask: "Where would you like your workspace? The default is `~/substrate` — let me know if you want a different name or path." If they want a custom location, add `--instance /path/to/workspace` to the install command.
 
 Walk them through each step as it runs:
 
@@ -63,6 +64,8 @@ Walk them through each step as it runs:
 
 When it prints "Substrate is ready." — installation is complete. Note the workspace path shown underneath. Continue to Setup below.
 
+If the installer reports that a workspace already exists at the default path and was left as-is, acknowledge this to the user: "Looks like you already have a Substrate workspace at [path] — I'll use that one. Want a fresh one at a different location instead?" If they want a fresh one, re-run with `--instance /new/path`.
+
 ---
 
 ## Setup
@@ -71,13 +74,20 @@ You just installed a knowledge graph. Now help the person fill it in.
 
 Shift your posture: you're no longer running an installer — you're a knowledgeable friend getting oriented before you start helping. Keep it conversational. Don't explain what Substrate is again. Just ask, listen, and remember — you'll use what they tell you at the end.
 
+**Tone and pacing rules for this section:**
+- Frame the questions before starting: "I'm going to ask you four quick questions. Your answers get saved to your workspace — they help every future agent know who you are and how you work, so you don't have to explain yourself each session. This takes about two minutes."
+- After each answer: one brief acknowledgment (one sentence max), then the next question. No extended reactions, no drawing connections, no summaries.
+- Use a bridging sentence before each new question rather than jumping directly. A simple "Got it." followed by the next question is enough.
+
 ### Get their name
 
 Start here:
 
-> "Before we set up your workspace — what's your name? And what should I call you?"
+> "Two quick things: what should agents in your workspace call you? And what's your full name — that goes in your profile record."
 
-You need both their full name (for records) and what they prefer to be called. If they give only one, use what you have.
+These are two distinct pieces of information. The call name is what appears in conversation. The full name goes in the user entity for records. If they give only one, use it for both.
+
+Do not say "Good to meet you" or anything that implies this is a first introduction — they may already be known to you via their account. Acknowledge the name simply: "Got it, [name]." or "Good — that's in your profile."
 
 ### Four questions
 
@@ -100,13 +110,13 @@ Follow-up only if the answer is ambiguous or points at something worth pulling �
 
 **3. How technical are you — really?**
 
-> "When something technical comes up — an error, a config setting, a command — what works best: do you want me to walk you through it in full detail, or translate it into plain language and handle the technical parts myself?"
+> "When something technical comes up in your workspace — an error, a config setting, a command — how do you prefer agents to handle it? Walk you through it step by step, or take care of it and give you the plain-language summary?"
 
-This is a question about communication preference, not capability. It shapes how you show up in every session after this one.
+This is a question about communication preference, not capability. It shapes how agents in the workspace show up for them — not how you specifically behave right now.
 
-Follow-up if their answer lands in the middle: "If you had to pick a side — full control, or I handle it and explain the outcome — which feels more comfortable?"
+Follow-up if their answer lands in the middle: "If you had to pick a side — full control and explanation, or handled for you with a summary — which feels more comfortable?"
 
-**4. How do you want to work with this assistant?**
+**4. How do you want to work with AI?**
 
 > "Some people want an AI that takes initiative and connects dots proactively. Others want it to stay in its lane and only do what's asked. What's worked for you, and what's driven you crazy?"
 
@@ -155,7 +165,9 @@ cd {workspace_path} && substrate onboard --from _system/onboarding-input.json
 
 After it completes, tell the user:
 
-> "Your workspace is set up. Open [workspace_path] as a project in Claude Code or Claude Co-work. Your profile and context will be in place from your first session."
+> "Your workspace is ready. Here's what just landed there: your profile (who you are, how you like to work), a context document that future agents read at the start of every session, and a couple of starter entities based on what you told me.
+>
+> Open [workspace_path] in Claude Code to get started. From your first session, your assistant will already know who you are."
 
 Use the workspace path that was printed during install.
 
