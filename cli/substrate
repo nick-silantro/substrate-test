@@ -35,6 +35,8 @@ def _read_claude_oauth_token() -> str | None:
     token_file = Path.home() / ".substrate" / "auth.token"
     if token_file.exists():
         try:
+            # Ensure owner-only permissions regardless of how the file was created
+            token_file.chmod(0o600)
             token = token_file.read_text().strip()
             if token:
                 return token
@@ -785,11 +787,131 @@ def cmd_claim(rest: list[str]) -> None:
 # Validate / index subcommands
 # ---------------------------------------------------------------------------
 
+def cmd_test(rest: list[str]) -> None:
+    """Run the integration test suite against this engine installation."""
+    ep = engine_path()
+    tests_dir = ep / "tests"
+
+    if not tests_dir.exists():
+        print("substrate test: tests/ directory not found in engine.", file=sys.stderr)
+        print(f"  Expected: {tests_dir}", file=sys.stderr)
+        sys.exit(1)
+
+    # Check pytest is available
+    check = subprocess.run(
+        [sys.executable, "-m", "pytest", "--version"],
+        capture_output=True
+    )
+    if check.returncode != 0:
+        print("substrate test: pytest not found.", file=sys.stderr)
+        print("  Install it with:  python3 -m pip install pytest", file=sys.stderr)
+        sys.exit(1)
+
+    # Make the substrate binary discoverable inside test subprocesses.
+    # Prefer the directory containing this script (works for both installed
+    # and dev-symlinked engines), falling back to the engine's cli/ dir.
+    cli_dir = Path(sys.argv[0]).resolve().parent
+    if not (cli_dir / "substrate").exists():
+        cli_dir = ep / "cli"
+    existing_path = os.environ.get("PATH", "")
+    new_path = f"{cli_dir}{os.pathsep}{existing_path}"
+
+    env = {
+        **os.environ,
+        "SUBSTRATE_ENGINE_PATH": str(ep),
+        "SUBSTRATE_PATH": str(instance_path()),
+        "PATH": new_path,
+    }
+
+    cmd = [sys.executable, "-m", "pytest", str(tests_dir)] + rest
+    result = subprocess.run(cmd, env=env)
+    sys.exit(result.returncode)
+
+
 def cmd_validate(rest: list[str]) -> None:
     if rest and rest[0] == "schema":
         run("validate_schema.py", rest[1:])
     else:
         run("validate.py", rest)
+
+
+def cmd_verify(_rest: list[str]) -> None:
+    """Lightweight end-user health check — no pytest required."""
+    import sqlite3
+    import yaml as _yaml
+
+    ok = True
+
+    def check(label: str, passed: bool, detail: str = "") -> None:
+        nonlocal ok
+        status = "ok" if passed else "FAIL"
+        line = f"  [{status}] {label}"
+        if detail:
+            line += f" — {detail}"
+        print(line)
+        if not passed:
+            ok = False
+
+    ip = instance_path()
+
+    print("substrate verify")
+    print()
+
+    # 1. Engine path exists
+    ep = engine_path()
+    check("engine path exists", ep.exists(), str(ep))
+
+    # 2. Instance path exists
+    check("instance path exists", ip.exists(), str(ip))
+
+    # 3. Required workspace directories
+    for d in ("entities", "assets", "staging", "_system/index"):
+        check(f"directory: {d}", (ip / d).is_dir())
+
+    # 4. SQLite index exists and is readable
+    db_path = ip / "_system" / "index" / "substrate.db"
+    db_ok = False
+    db_detail = ""
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("SELECT COUNT(*) FROM entities")
+            conn.close()
+            db_ok = True
+        except Exception as e:
+            db_detail = str(e)
+    else:
+        db_detail = "file not found"
+    check("sqlite index readable", db_ok, db_detail)
+
+    # 5. overlay.yaml is valid YAML
+    overlay = ip / "_system" / "overlay.yaml"
+    overlay_ok = False
+    overlay_detail = ""
+    if overlay.exists():
+        try:
+            _yaml.safe_load(overlay.read_text())
+            overlay_ok = True
+        except Exception as e:
+            overlay_detail = str(e)
+    else:
+        overlay_detail = "file not found"
+    check("overlay.yaml valid", overlay_ok, overlay_detail)
+
+    # 6. Engine scripts directory
+    scripts_dir = ep / "_system" / "scripts"
+    check("engine scripts present", scripts_dir.is_dir())
+
+    # 7. Schema files present
+    schema_dir = ep / "_system" / "schema"
+    check("engine schema present", schema_dir.is_dir())
+
+    print()
+    if ok:
+        print("All checks passed.")
+    else:
+        print("One or more checks failed. Run 'substrate validate' for details.")
+        sys.exit(1)
 
 
 def cmd_index_rebuild(_rest: list[str]) -> None:
@@ -951,6 +1073,10 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
                 print(f"  • {label}: already installed (skipping — use --reinit to update)")
                 continue
 
+            if dest.exists() and str(target) not in dest.read_text():
+                print(f"  • {label}: skipping — installed plist belongs to a different workspace")
+                continue
+
             dest.write_text(apply_subs(template.read_text()))
 
             if reinstall:
@@ -967,14 +1093,55 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
     elif system == "Linux":
         user_systemd = home / ".config" / "systemd" / "user"
         user_systemd.mkdir(parents=True, exist_ok=True)
+        (target / "_system" / "logs").mkdir(parents=True, exist_ok=True)
 
-        for template in sorted(deploy_dir.glob("substrate-*.service")):
-            dest = user_systemd / template.name
+        newly_written: list[str] = []
+
+        templates = sorted(deploy_dir.glob("substrate-*.service")) + \
+                    sorted(deploy_dir.glob("substrate-*.timer"))
+        for template in templates:
+            unit_name = template.name
+            unit_label = template.stem
+            dest = user_systemd / unit_name
+
+            if dest.exists() and not reinstall:
+                print(f"  • {unit_label}: already installed (skipping — use --reinit to update)")
+                continue
+
+            if dest.exists() and str(target) not in dest.read_text():
+                print(f"  • {unit_label}: skipping — installed unit belongs to a different workspace")
+                continue
+
+            if reinstall and dest.exists():
+                subprocess.run(
+                    ["systemctl", "--user", "disable", "--now", unit_name],
+                    capture_output=True,
+                )
+
             dest.write_text(apply_subs(template.read_text()))
-            print(f"  ✓ {template.name}: written to {dest}")
+            newly_written.append(unit_name)
 
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
-        print("  Run: systemctl --user enable --now substrate-entity-watcher")
+
+        # Timer-backed services are activated by their timer — don't enable directly.
+        all_timers = {t.name for t in user_systemd.glob("substrate-*.timer")}
+        timer_backed = {t.replace(".timer", ".service") for t in all_timers}
+
+        for unit_name in newly_written:
+            unit_label = unit_name.replace(".service", "").replace(".timer", "")
+            if unit_name.endswith(".service") and unit_name in timer_backed:
+                print(f"  ✓ {unit_label}: written (activated by its timer)")
+                continue
+            result = subprocess.run(
+                ["systemctl", "--user", "enable", "--now", unit_name],
+                capture_output=True, text=True,
+            )
+            if result.returncode == 0:
+                kind = "timer enabled and running" if unit_name.endswith(".timer") else "enabled and started"
+                print(f"  ✓ {unit_label}: {kind}")
+            else:
+                print(f"  ✓ {unit_label}: written — enable manually:")
+                print(f"      systemctl --user enable --now {unit_name}")
 
     elif system == "Windows":
         _install_services_windows(target, ep, home, substrate_bin, reinstall)
@@ -1026,6 +1193,20 @@ def _install_services_windows(
                 f'"{substrate_bat}" triggers evaluate\n'
             ),
             "xml": lambda cmd_path: _evaluate_triggers_xml(cmd_path, target, logs_dir),
+            "start_immediately": False,
+        },
+        {
+            "label": "substrate-check-for-updates",
+            "task_name": "Substrate\\CheckForUpdates",
+            "cmd_name": "_run-check-for-updates.cmd",
+            "cmd_body": (
+                f'@echo off\n'
+                f'set SUBSTRATE_PATH={target}\n'
+                f'set SUBSTRATE_ENGINE_PATH={ep}\n'
+                f'set PATH={local_bin};%PATH%\n'
+                f'"{substrate_bat}" check-for-updates\n'
+            ),
+            "xml": lambda cmd_path: _check_for_updates_xml(cmd_path, target, logs_dir),
             "start_immediately": False,
         },
     ]
@@ -1132,6 +1313,43 @@ def _evaluate_triggers_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> s
 </Task>"""
 
 
+def _check_for_updates_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
+    return f"""<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>Substrate update checker — runs every 30 minutes</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <TimeTrigger>
+      <Repetition>
+        <Interval>PT30M</Interval>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
+      <StartBoundary>2000-01-01T00:00:00</StartBoundary>
+      <Enabled>true</Enabled>
+    </TimeTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <ExecutionTimeLimit>PT5M</ExecutionTimeLimit>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>{cmd_path}</Command>
+      <WorkingDirectory>{workspace}</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>"""
+
+
 def _link_skills(engine_skills: Path, instance_skills: Path) -> None:
     """Link instance .claude/skills/ to the engine skills directory.
 
@@ -1220,10 +1438,17 @@ def cmd_init(rest: list[str]) -> None:
     # Link skills from engine into instance
     _link_skills(ep / "_system" / "skills", target / ".claude" / "skills")
 
-    # Write CLAUDE.md — always refresh from engine (it's a bootstrap, not user content)
+    # Symlink CLAUDE.md to engine so updates propagate automatically.
+    # Windows falls back to a copy — file symlinks require Developer Mode there.
     claude_md_src = ep / "CLAUDE.md"
+    dest_claude = target / "CLAUDE.md"
+    if dest_claude.is_symlink() or dest_claude.exists():
+        dest_claude.unlink()
     if claude_md_src.exists():
-        (target / "CLAUDE.md").write_text(claude_md_src.read_text())
+        if sys.platform == "win32":
+            dest_claude.write_text(claude_md_src.read_text())
+        else:
+            dest_claude.symlink_to(claude_md_src)
     else:
         (target / "CLAUDE.md").write_text(textwrap.dedent("""\
             # Substrate
@@ -1481,6 +1706,117 @@ def cmd_search(rest: list[str]) -> None:
         sys.exit(1)
 
 
+def cmd_onboard(rest: list[str]) -> None:
+    run("onboard.py", rest)
+
+
+def cmd_check_for_updates(_rest: list[str]) -> None:
+    run("check-for-updates.py", [])
+
+
+def cmd_update_snooze(_rest: list[str]) -> None:
+    """Record the currently pending updates as declined by the user.
+
+    Reads pending-updates.md to find the versions being snoozed, writes
+    _system/update-snooze.yaml. check-for-updates will skip these versions
+    until a newer release is detected.
+    """
+    import re
+    ip = instance_path()
+    pending = ip / "_system" / "docs" / "pending-updates.md"
+    snooze_file = ip / "_system" / "update-snooze.yaml"
+
+    if not pending.exists():
+        print("No pending updates — nothing to snooze.")
+        return
+
+    content = pending.read_text(encoding="utf-8")
+
+    snooze: dict = {}
+    if snooze_file.exists():
+        try:
+            import yaml
+            snooze = yaml.safe_load(snooze_file.read_text()) or {}
+        except Exception:
+            snooze = {}
+
+    # Parse Agent SDK version from "Agent SDK (`...`): X.X.X → Y.Y.Y"
+    sdk_match = re.search(r"Agent SDK[^:]*:\s*[\d.]+\s*→\s*([\d.]+)", content)
+    if sdk_match:
+        snooze["agent_sdk"] = sdk_match.group(1)
+        print(f"  Snoozed Agent SDK {sdk_match.group(1)}")
+
+    # Parse Claude CLI version from "Claude Code CLI: X.X.X → Y.Y.Y"
+    cli_match = re.search(r"Claude Code CLI:\s*[\d.]+\s*→\s*([\d.]+)", content)
+    if cli_match:
+        snooze["claude_cli"] = cli_match.group(1)
+        print(f"  Snoozed Claude Code CLI {cli_match.group(1)}")
+
+    # Parse Substrate: get the latest commit hash from the engine
+    if "## Substrate Engine" in content:
+        ep = engine_path()
+        result = subprocess.run(
+            ["git", "rev-parse", "origin/main"],
+            cwd=ep, capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            snooze["substrate"] = result.stdout.strip()
+            print(f"  Snoozed Substrate engine ({result.stdout.strip()[:8]})")
+
+    if not snooze:
+        print("Could not parse any versions from pending-updates.md.")
+        return
+
+    import yaml
+    snooze_file.write_text(yaml.dump(snooze, default_flow_style=False), encoding="utf-8")
+    print("\nUpdate snoozed. It will resurface when a newer version is available.")
+
+
+def cmd_update_anthropic(_rest: list[str]) -> None:
+    ep = engine_path()
+    ip = instance_path()
+    pending = ip / "_system" / "docs" / "pending-updates.md"
+
+    print("Updating Claude Code CLI...")
+    result = subprocess.run(["claude", "update"], text=True)
+    if result.returncode != 0:
+        print("  Warning: claude update returned non-zero — check output above.", file=sys.stderr)
+
+    print("\nUpdating Agent SDK (@anthropic-ai/claude-agent-sdk)...")
+    updated_any = False
+    for app_dir in ("web/surface", "web/relay"):
+        pkg_dir = ep / app_dir
+        if (pkg_dir / "package.json").exists():
+            print(f"  {app_dir}...")
+            subprocess.run(
+                ["npm", "install", "@anthropic-ai/claude-agent-sdk@latest"],
+                cwd=pkg_dir, text=True
+            )
+            updated_any = True
+    if not updated_any:
+        print("  No Surface/Relay app directories found — skipping SDK update.", file=sys.stderr)
+
+    if pending.exists():
+        pending.unlink()
+        print("\nCleared pending-updates.md.")
+
+    snooze_file = ip / "_system" / "update-snooze.yaml"
+    if snooze_file.exists():
+        try:
+            import yaml
+            snooze = yaml.safe_load(snooze_file.read_text()) or {}
+            snooze.pop("agent_sdk", None)
+            snooze.pop("claude_cli", None)
+            if snooze:
+                snooze_file.write_text(yaml.dump(snooze, default_flow_style=False))
+            else:
+                snooze_file.unlink()
+        except Exception:
+            pass
+
+    print("\nDone. Run 'substrate check-for-updates' to re-check status.")
+
+
 def cmd_update(_rest: list[str]) -> None:
     ep = engine_path()
     ip = instance_path()
@@ -1536,6 +1872,20 @@ def cmd_update(_rest: list[str]) -> None:
             print("Run 'substrate schema alias check' to review and fix.")
     except Exception:
         pass  # non-fatal
+
+    # --- Clear substrate snooze entry ---
+    snooze_file = ip / "_system" / "update-snooze.yaml"
+    if snooze_file.exists():
+        try:
+            import yaml
+            snooze = yaml.safe_load(snooze_file.read_text()) or {}
+            snooze.pop("substrate", None)
+            if snooze:
+                snooze_file.write_text(yaml.dump(snooze, default_flow_style=False))
+            else:
+                snooze_file.unlink()
+        except Exception:
+            pass
 
 
 def cmd_sync(_rest: list[str]) -> None:
@@ -1617,10 +1967,13 @@ def cmd_version(_rest: list[str]) -> None:
 
 COMMANDS: dict[tuple[str, ...], callable] = {
     # setup
-    ("init",):     cmd_init,
+    ("init",):              cmd_init,
+    ("onboard",):           cmd_onboard,
+    ("check-for-updates",): cmd_check_for_updates,
+    ("update-anthropic",):  cmd_update_anthropic,
+    ("update-snooze",):     cmd_update_snooze,
     ("auth",):          cmd_auth,
-    ("search", "setup"):   cmd_search,
-    ("search", "rebuild"): cmd_search,
+    ("search",): cmd_search,
     ("start",):    cmd_start,
     ("update",):   cmd_update,
     ("sync",):     cmd_sync,
@@ -1658,8 +2011,10 @@ COMMANDS: dict[tuple[str, ...], callable] = {
     ("schema", "unalias"): cmd_schema_unalias,
     ("schema", "hide"):    cmd_schema_hide,
     ("schema", "unhide"):  cmd_schema_unhide,
-    # validate
+    # test / validate / verify
+    ("test",):           cmd_test,
     ("validate",):       cmd_validate,
+    ("verify",):         cmd_verify,
     # index
     ("index", "rebuild"): cmd_index_rebuild,
     # coordination
@@ -1681,6 +2036,10 @@ Setup:
   auth login                  Force a new OAuth login
   init [PATH]                 Create a new instance (default: ~/substrate)
   init PATH --reinit          Refresh CLAUDE.md and rebuild index on an existing instance
+  onboard --from PATH         Create starter context docs from an onboarding JSON file
+  check-for-updates           Check for Substrate and Anthropic stack updates
+  update-anthropic            Update Claude Code CLI and Agent SDK
+  update-snooze               Snooze current pending updates (resurface when newer version available)
   start [surface] [relay]     Start Surface and Relay on localhost (both by default)
   update                      Update engine (git pull) and refresh skills link
   sync                        Refresh skills link and rebuild index
@@ -1724,9 +2083,15 @@ Schema commands:
   schema hide   type|attribute|relationship NAME
   schema unhide type|attribute|relationship NAME
 
+Testing:
+  test                        Run integration test suite (requires pytest)
+  test -k PATTERN             Run tests matching a name pattern
+  test -v                     Verbose test output
+
 Validation:
-  validate
-  validate schema
+  validate                    Full workspace integrity check
+  validate schema             Schema consistency only
+  verify                      Lightweight health check (no dependencies required)
 
 Indexing:
   index rebuild

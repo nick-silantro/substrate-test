@@ -29,7 +29,7 @@ categories:
       comes_from:
         inverse: "spawned"
         description: "The source entity emerged from this origin context"
-        notes: "Target is always an object-nature entity (meeting, conversation, document, event). Work entities are actors — they produce things, they do not birth things. Nothing comes_from a work entity."
+        notes: "Target is always an object-nature entity (meeting, note, document, event). Work entities are actors — they produce things, they do not birth things. Nothing comes_from a work entity."
       derived_from:
         inverse: "source_of"
         description: "The source entity was built by transforming or extending the target"
@@ -44,7 +44,7 @@ categories:
       serves:
         inverse: "served_by"
         description: "Purposeful contribution — the source work exists in pursuit of this horizon's purpose"
-        notes: "Target must be horizon-nature (mission, pillar, goal). For work contributing to objects, use supports."
+        notes: "Target must be horizon-nature (mission, pillar, milestone). For work contributing to objects, use supports."
       supports:
         inverse: "supported_by"
         description: "Operational contribution — the source work contributes to this object's development or maintenance"
@@ -110,7 +110,7 @@ categories:
       replies_to:
         inverse: "replied_by"
         description: "Message reply chain — enables threading without a separate thread entity"
-        notes: "Expected: messaging entities (comment, review) on both sides. Reply chains have no meaning outside of threaded messaging entities."
+        notes: "Intended for messaging entities (comment, review). Available for use when those types are added via schema extension."
       watches:
         inverse: "watched_by"
         description: "Trigger monitors this entity for events"
@@ -120,15 +120,15 @@ categories:
       reviewed_by:
         inverse: "reviews"
         description: "Outside perspective who verifies completion"
-        notes: "Expected source types: task, ticket, project, workstream, incident, initiative. Target is a user or agent."
+        notes: "Expected source types: task, ticket, project, workstream, incident. Target is a user or agent."
       performed_by:
         inverse: "performed"
-        description: "Who executed or is executing this work or authored this message"
-        notes: "Expected source types: task, comment, review. Cardinality: many — multiple actors can co-perform. For messaging entities, the performing actor is the author for reply notification routing."
+        description: "Who executed or is executing this work"
+        notes: "Expected source types: work entities (task, ticket). Cardinality: many — multiple actors can co-perform."
       mentions:
         inverse: "mentioned_in"
-        description: "Actor referenced in a messaging entity — receiving a mention triggers notification"
-        notes: "Expected source type: comment, review. Target is group:actors. Cardinality: many."
+        description: "Actor referenced in a message or document — may trigger notification"
+        notes: "Intended for messaging entities (comment, review). Available for use when those types are added via schema extension. Target is group:actors. Cardinality: many."
       asked_by:
         inverse: "asked"
         description: "Actor who posed this question"
@@ -139,8 +139,8 @@ categories:
         notes: "Expected source type: decision. Target is group:actors."
       curated_by:
         inverse: "curates"
-        description: "Actor responsible for maintaining this library"
-        notes: "Expected source type: library. Target is group:actors."
+        description: "Actor responsible for maintaining this document or reference collection"
+        notes: "Expected source types: document, reference. Target is group:actors."
       uses:
         inverse: "used_in"
         description: "The source entity incorporates or relies on the target — an artifact uses an asset, a document uses an image"
@@ -163,14 +163,14 @@ connection_rules:
   # Guidance on expected types lives in the `notes` attribute on each relationship definition above.
   # No hard restrictions are enforced here — agents are guided by skills and relationship notes.
 
-  # Work types form strict layers: tasks -> tickets -> projects -> initiatives.
+  # Work types form strict layers: tasks -> tickets -> projects.
   # An entity cannot contain or belong to another of the same type.
   # This applies to work types only — other types (libraries, documents, etc.) may nest freely.
   # Scoped to containment relationships only — dependency chains (depends_on, enables)
   # between same-type entities are valid and expected.
   no_same_type_nesting:
     enabled: true
-    applies_to: ["task", "ticket", "project", "workstream", "incident", "initiative"]
+    applies_to: ["task", "ticket", "project", "workstream", "incident"]
     scope_category: "containment"  # descriptive metadata — not machine-read by scripts; documents intent that this invariant applies to containment relationships only, not sequencing (depends_on, enables)
 
 required_relationships:
@@ -200,9 +200,9 @@ enforcement:
 # Common patterns (not enforced) — typical usage for agents
 common_patterns:
   - pattern: "belongs_to"
-    typical: "task -> ticket, ticket -> project, project -> initiative, document -> library, article -> library"
+    typical: "task -> ticket, ticket -> project"
   - pattern: "serves"
-    typical: "task -> goal, project -> mission, mission -> pillar, project -> product, workstream -> mission"
+    typical: "project -> mission, mission -> pillar, project -> product, workstream -> mission"
   - pattern: "comes_from"
     typical: "work/knowledge entities -> meetings, conversations, documents"
   - pattern: "produces"

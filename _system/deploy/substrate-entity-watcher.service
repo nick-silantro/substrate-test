@@ -1,39 +1,35 @@
-# systemd unit for the Substrate entity watcher (Linux).
+# systemd user unit for the Substrate entity watcher (Linux).
+#
+# Installed as a user unit — no root required.
 #
 # Placeholders — substitute before installing:
 #   __WORKSPACE__   absolute path to the workspace root (e.g. /home/alice/substrate)
 #   __ENGINE__      absolute path to the engine install (e.g. /home/alice/.substrate/engine)
-#   __USER__        OS user that owns the workspace (e.g. alice)
+#   __HOME__        user's home directory (e.g. /home/alice)
 #
-# Install:
-#   sed -e 's|__WORKSPACE__|/path/to/workspace|g' \
-#       -e 's|__ENGINE__|/path/to/engine|g' \
-#       -e 's|__USER__|'"$USER"'|g' \
-#       _system/deploy/substrate-entity-watcher.service \
-#       | sudo tee /etc/systemd/system/substrate-entity-watcher.service
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable substrate-entity-watcher
-#   sudo systemctl start substrate-entity-watcher
+# Install (handled automatically by `substrate init`):
+#   install -Dm644 substrate-entity-watcher.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now substrate-entity-watcher
 #
 # Status / logs:
-#   sudo systemctl status substrate-entity-watcher
-#   sudo journalctl -u substrate-entity-watcher -f
+#   systemctl --user status substrate-entity-watcher
+#   journalctl --user -u substrate-entity-watcher -f
 #
 # Note: entity-watcher.py depends on the watchdog package. The venv must be
 # set up in __WORKSPACE__/_system/venv/ before the service will start.
-# See _system/deploy/README.md for venv setup instructions.
 
 [Unit]
 Description=Substrate Entity Watcher — auto-bumps last_edited on entity content changes
-After=network.target
+After=default.target
 
 [Service]
 Type=simple
-User=__USER__
 WorkingDirectory=__WORKSPACE__
+Environment=HOME=__HOME__
+Environment=PATH=__HOME__/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=SUBSTRATE_PATH=__WORKSPACE__
 Environment=SUBSTRATE_ENGINE_PATH=__ENGINE__
-# Use the workspace venv — ensures watchdog and other deps are available.
 ExecStart=__WORKSPACE__/_system/venv/bin/python3 __ENGINE__/_system/scripts/entity-watcher.py
 Restart=always
 RestartSec=5
@@ -41,4 +37,4 @@ StandardOutput=append:__WORKSPACE__/_system/logs/entity-watcher.log
 StandardError=append:__WORKSPACE__/_system/logs/entity-watcher-error.log
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

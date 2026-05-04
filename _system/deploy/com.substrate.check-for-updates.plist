@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd unit for the Substrate update checker (macOS).
+  Runs every 30 minutes to check for Substrate and Anthropic stack updates.
+  NOTE: 30-minute interval is intentional for testing. Increase for production.
+
+  Placeholders — substitute before installing:
+    __WORKSPACE__   absolute path to the workspace root (e.g. /Users/alice/substrate)
+    __ENGINE__      absolute path to the engine install (e.g. /Users/alice/.substrate/engine)
+    __HOME__        user's home directory (e.g. /Users/alice)
+    __SUBSTRATE__   absolute path to the substrate CLI binary
+
+  Install:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.check-for-updates.plist
+
+  Uninstall:
+    launchctl bootout gui/$(id -u)/com.substrate.check-for-updates
+    rm ~/Library/LaunchAgents/com.substrate.check-for-updates.plist
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.substrate.check-for-updates</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>__SUBSTRATE__</string>
+        <string>check-for-updates</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__WORKSPACE__</string>
+
+    <key>StartInterval</key>
+    <integer>1800</integer>
+
+    <key>StandardOutPath</key>
+    <string>__WORKSPACE__/_system/logs/check-for-updates-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>__WORKSPACE__/_system/logs/check-for-updates-stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>HOME</key>
+        <string>__HOME__</string>
+        <key>PATH</key>
+        <string>__HOME__/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>SUBSTRATE_PATH</key>
+        <string>__WORKSPACE__</string>
+        <key>SUBSTRATE_ENGINE_PATH</key>
+        <string>__ENGINE__</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

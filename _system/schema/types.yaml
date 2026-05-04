@@ -17,9 +17,13 @@ types:
     grouping: "horizons"
     description: "A time-bound directional bet designed to move closer to a pillar"
 
+  milestone:
+    grouping: "horizons"
+    description: "A significant checkpoint on the path toward a horizon. Milestones are entities with their own lifecycle and strategic weight — use one when the checkpoint itself matters beyond the tickets that deliver it. A milestone can be tracked, celebrated, reported on, and referenced by future work. If the checkpoint is just a date on a plan, it doesn't need to be a milestone."
+
   task:
     grouping: "actions"
-    description: "An optional sub-unit of a ticket, created at an agent's discretion during execution — for internal tracking or to leave a record for future agents. Not created by L1s; not the primary claiming surface."
+    description: "An optional sub-unit of a ticket, created at an agent's discretion during execution — for internal tracking or to leave a record for future agents. Not the primary claiming surface."
 
   chore:
     grouping: "actions"
@@ -27,7 +31,7 @@ types:
 
   ticket:
     grouping: "actions"
-    description: "The primary work unit and claiming surface for L2 agents — one coherent piece of work that produces a single reviewable output. Sized so one agent can complete it in one session."
+    description: "The primary work unit — one coherent piece of work that produces a single reviewable output. Sized so one agent can complete it in one session."
 
   project:
     grouping: "efforts"
@@ -41,29 +45,29 @@ types:
     grouping: "efforts"
     description: "A short emergency project subtype to restore service (restore)"
 
-  initiative:
-    grouping: "efforts"
-    description: "A strategic effort containing multiple projects"
+  inquiry:
+    grouping: "planning"
+    description: "A tracked open investigation seeking understanding; may or may not lead to a decision"
 
-  milestone:
-    grouping: "horizons"
-    description: "A significant checkpoint on the path toward a horizon. Milestones are entities with their own lifecycle and strategic weight — use one when the checkpoint itself matters beyond the tickets that deliver it. A milestone can be tracked, celebrated, reported on, and referenced by future work. If the checkpoint is just a date on a plan, it doesn't need to be a milestone."
+  idea:
+    grouping: "planning"
+    description: "A possibility worth considering — a thesis about something that could be built, pursued, or explored"
 
-  note:
-    grouping: "knowledge"
-    description: "A freeform captured thought"
+  decision:
+    grouping: "planning"
+    description: "A settled conclusion that governs how something is built, run, or understood — the deliberative record of what was weighed and why. Works for any domain: system architecture, product, process, or personal."
 
-  quote:
-    grouping: "knowledge"
-    description: "A verbatim extract from an external source, attributed to a person or organization. Different from a note in that it is someone else's words, not yours. Content goes in quote.md; source is linked via comes_from; speaker via attributed_to."
+  trigger:
+    grouping: "utility"
+    description: "An active mechanism that fires actions in response to events"
 
-  document:
-    grouping: "knowledge"
-    description: "Formal written content"
+  skill:
+    grouping: "utility"
+    description: "A formalized instructional recipe that tells an agent how to perform a class of tasks — invokable by name, scoped globally or to Substrate, and maintained as a first-class capability"
 
-  reference:
-    grouping: "knowledge"
-    description: "An external resource consumed and retained — a link, video, article, post, or other media captured for reference, analysis, or future connection"
+  context-doc:
+    grouping: "utility"
+    description: "A living operational document that shapes how agents understand and operate within the workspace — context stack files, reference docs, and system guides. Routed to agents by audience and domain attributes, not hardcoded paths."
 
   person:
     grouping: "actors"
@@ -81,89 +85,21 @@ types:
     grouping: "actors"
     description: "A company, team, or group"
 
-  goal:
-    grouping: "horizons"
-    description: "Something you're working toward"
-
-  inquiry:
-    grouping: "planning"
-    description: "A tracked open investigation seeking understanding; may or may not lead to a decision"
-
-  idea:
-    grouping: "planning"
-    description: "A possibility worth considering — a thesis about something that could be built, pursued, or explored"
-
-  trigger:
-    grouping: "utility"
-    description: "An active mechanism that fires actions in response to events"
-
-  decision:
-    grouping: "planning"
-    description: "A settled conclusion that governs how something is built, run, or understood — the deliberative record of what was weighed and why. Works for any domain: system architecture, product, process, or personal."
-
-  meeting:
-    grouping: "events"
-    description: "An intentional gathering of participants (human or agent) to discuss and produce outcomes; scheduled or ad hoc"
-
-  friction:
-    grouping: "logs"
-    description: "A bug, inefficiency, or irritation to address later"
-
-  diary-entry:
-    grouping: "logs"
-    description: "A distilled summary of a session transcript — what happened, what was decided, what should carry forward"
-
-  comment:
-    grouping: "messaging"
-    description: "A general-purpose annotation on any entity — discussion, clarification, status update. Threads emerge from replies-to chains. Scope ranges from entity-level to file-level via file_target attribute."
-
-  review:
-    grouping: "messaging"
-    description: "A structured evaluation with a verdict — pre-execution checks and post-execution reviews. Distinguished by gate (pre_execution vs post_execution) and performer (agent vs user)."
-
-  correspondence:
-    grouping: "logs"
-    description: "An external communication sent or received — emails, LinkedIn messages, and other exchanges with people outside Substrate. Tracks direction, channel, participants, and context."
-
-  script:
-    grouping: "artifacts"
-    description: "A structured outline or script for video/audio content"
-
-  conversation:
+  note:
     grouping: "knowledge"
-    description: "A recorded dialogue or exchange between participants"
+    description: "A freeform captured thought"
 
-  library:
+  quote:
     grouping: "knowledge"
-    description: "A persistent collection/container for related documents"
+    description: "A verbatim extract from an external source, attributed to a person or organization. Different from a note in that it is someone else's words, not yours. Content goes in quote.md; source is linked via comes_from; speaker via attributed_to."
 
-  article:
-    grouping: "artifacts"
-    description: "A produced piece of written content intended for publication; the output side of the consumption/production divide"
+  document:
+    grouping: "knowledge"
+    description: "Formal written content"
 
-  product:
-    grouping: "artifacts"
-    description: "A persistent thing you build, ship, and maintain; projects revolve around products, but products are objects through and through"
-
-  build:
-    grouping: "artifacts"
-    description: "A codebase or deployable artifact with its own repo and development lifecycle"
-
-  invoice:
-    grouping: "deliverables"
-    description: "A formal payment request issued to an external party; tracks delivery and payment state"
-
-  receipt:
-    grouping: "deliverables"
-    description: "A payment confirmation or acknowledgment document; tracks delivery state"
-
-  tool:
-    grouping: "resources"
-    description: "An external software tool, service, or platform used in building or operating — defined by its functional role, not its form"
-
-  skill:
-    grouping: "utility"
-    description: "A formalized instructional recipe that tells an agent how to perform a class of tasks — invokable by name, scoped globally or to Substrate, and maintained as a first-class capability"
+  reference:
+    grouping: "knowledge"
+    description: "An external resource consumed and retained — a link, video, article, post, or other media captured for reference, analysis, or future connection"
 
   framework:
     grouping: "knowledge"
@@ -185,6 +121,30 @@ types:
     grouping: "knowledge"
     description: "A standing decision that governs future work — settled, authoritative, and durable; distinct from idea (provisional, action-seeking) and framework (a model for thinking about something, not a governing rule)"
 
+  meeting:
+    grouping: "events"
+    description: "An intentional gathering of participants (human or agent) to discuss and produce outcomes; scheduled or ad hoc"
+
+  correspondence:
+    grouping: "logs"
+    description: "An external communication sent or received — emails, LinkedIn messages, and other exchanges with people outside Substrate. Tracks direction, channel, participants, and context."
+
+  article:
+    grouping: "artifacts"
+    description: "A produced piece of written content intended for publication; the output side of the consumption/production divide"
+
+  script:
+    grouping: "artifacts"
+    description: "A structured outline or script for video/audio content"
+
+  product:
+    grouping: "artifacts"
+    description: "A persistent thing you build, ship, and maintain; projects revolve around products, but products are objects through and through"
+
+  build:
+    grouping: "artifacts"
+    description: "A codebase or deployable artifact with its own repo and development lifecycle"
+
   resume:
     grouping: "artifacts"
     description: "A personal professional document produced in multiple formats (Markdown, HTML, PDF), tailored per audience. The canonical resume is the source; all others derive from it."
@@ -192,6 +152,18 @@ types:
   video:
     grouping: "artifacts"
     description: "A produced video published or shared externally — a YouTube upload, a demo recording, a promotional clip. The published work, not the file; binary files are separate asset entities linked via uses/used_in."
+
+  invoice:
+    grouping: "deliverables"
+    description: "A formal payment request issued to an external party; tracks delivery and payment state"
+
+  receipt:
+    grouping: "deliverables"
+    description: "A payment confirmation or acknowledgment document; tracks delivery state"
+
+  tool:
+    grouping: "resources"
+    description: "An external software tool, service, or platform used in building or operating — defined by its functional role, not its form"
 
   job-opportunity:
     grouping: "opportunities"
@@ -217,11 +189,6 @@ types:
     grouping: "asset"
     description: "An audio binary (MP3, WAV, FLAC) stored in assets/. Linked to artifact entities via uses/used_in."
 
-
-  context-doc:
-    grouping: "utility"
-    description: "A living operational document that shapes how agents understand and operate within the workspace — context stack files, reference docs, and system guides. Routed to agents by audience and domain attributes, not hardcoded paths."
-
   photo:
     grouping: "asset"
     description: "A photograph or image capture stored in assets/. Linked to related entities via uses/used_in."
@@ -235,12 +202,12 @@ groupings:
   efforts:
     description: "Bounded efforts with outcomes"
     nature: ["work"]
-    types: ["project", "workstream", "incident", "initiative"]
+    types: ["project", "workstream", "incident"]
 
   horizons:
     description: "Where you're aiming — destinations that orient work, not work items themselves"
     nature: ["object"]
-    types: ["pillar", "mission", "goal", "milestone"]
+    types: ["pillar", "mission", "milestone"]
 
   planning:
     description: "Knowledge artifacts produced through deliberation — questions, ideas, and conclusions"
@@ -260,7 +227,7 @@ groupings:
   knowledge:
     description: "Information to retain — consumed or referenced"
     nature: ["object"]
-    types: ["note", "document", "reference", "conversation", "library", "quote", "framework", "pain-point", "value-prop", "audience", "principle"]
+    types: ["note", "document", "reference", "quote", "framework", "pain-point", "value-prop", "audience", "principle"]
 
   artifacts:
     description: "Tangible outputs — produced and shipped"
@@ -276,16 +243,7 @@ groupings:
   logs:
     description: "Observations over time"
     nature: ["object"]
-    types: ["friction", "diary-entry", "correspondence"]
-
-  messaging:
-    description: "Communication as records — the entity is the communication itself, not a trace of something that happened elsewhere"
-    nature: ["object"]
-    types: ["comment", "review"]
-    behavior:
-      non_duplicable: true
-      inline_display: true
-      contextually_bound: true
+    types: ["correspondence"]
 
   deliverables:
     description: "Things issued to an external party in expectation of a formal acknowledgment — payment, signature, or receipt confirmation. Distinct from artifacts (internal outputs) and documents (the Substrate knowledge type)."
@@ -314,8 +272,10 @@ groupings:
 #   3. What grouping does it belong to?
 # Creating New Groupings:
 #   Groupings should be rare. They represent fundamentally different categories of being.
-# Grouping-Level Dimensions:
-#   Before defining a new status dimension for a grouping, check whether the
-#   grouping already has a dimension for the concern. Define dimensions at the
-#   grouping level (preferred.groupings: [...]) not the type level.
-#   Type-level status dimensions are outlawed. See attributes.yaml.
+# Custom Status Dimensions:
+#   Default to grouping-level: one dimension covering all types in the grouping with shared
+#   vocabulary. Check academically — would the status categories and their values apply
+#   sensibly across every type in the grouping? If yes, define at grouping level.
+#   If the vocabulary genuinely doesn't map across the grouping, define at type level.
+#   All custom status dimensions must end in _status (e.g., pipeline_status, approval_status).
+#   See attributes.yaml for the access model.

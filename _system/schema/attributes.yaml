@@ -305,7 +305,7 @@ attributes:
     access:
       exclusive: false
       preferred:
-        types: ["project"]
+        types: ["project", "mission"]
 
   end_date:
     data_type: "date"
@@ -314,7 +314,7 @@ attributes:
     access:
       exclusive: false
       preferred:
-        types: ["project"]
+        types: ["project", "mission"]
 
   start_time:
     data_type: "datetime"
@@ -333,15 +333,6 @@ attributes:
       exclusive: false
       preferred:
         types: ["meeting"]
-
-  timeframe:
-    data_type: "string"
-    required: false
-    description: "Time horizon for this effort"
-    access:
-      exclusive: false
-      preferred:
-        types: ["initiative", "goal"]
 
   version:
     data_type: "string"
@@ -385,7 +376,7 @@ attributes:
     access:
       exclusive: false
       preferred:
-        types: ["conversation", "article", "reference"]
+        types: ["article", "reference"]
 
   direction:
     data_type: "enum"
@@ -502,6 +493,7 @@ attributes:
   role:
     data_type: "string"
     required: false
+    description: "Professional title or position of this person"
     access:
       exclusive: true
       preferred:
@@ -510,6 +502,7 @@ attributes:
   email:
     data_type: "email"
     required: false
+    description: "Primary email address for contact"
     access:
       exclusive: true
       preferred:
@@ -556,6 +549,7 @@ attributes:
     data_type: "enum"
     required: false
     values: ["company", "team", "department", "group"]
+    description: "Organizational category — company, team, department, or group"
     access:
       exclusive: true
       preferred:
@@ -634,6 +628,7 @@ attributes:
   decided_date:
     data_type: "date"
     required: false
+    description: "Date the decision was formally reached"
     access:
       exclusive: true
       preferred:
@@ -658,78 +653,11 @@ attributes:
       preferred:
         types: ["meeting"]
 
-  category:
-    data_type: "enum"
-    required: false
-    values: ["bug", "inefficiency", "ux", "process", "other"]
-    access:
-      exclusive: true
-      preferred:
-        types: ["friction"]
-
-  observed:
-    data_type: "string"
-    required: true
-    storage: "file_only"
-    description: "What happened, the actual friction experienced"
-    access:
-      exclusive: true
-      required:
-        types: ["friction"]
-
-  context:
-    data_type: "string"
-    required: false
-    storage: "file_only"
-    description: "What it relates to, where/when it occurred"
-    access:
-      exclusive: true
-      preferred:
-        types: ["friction"]
-
-  next_steps:
-    data_type: "list"
-    item_type: "string"
-    cardinality: "many"
-    required: false
-    storage: "file_only"
-    description: "Recommended actions for investigation or resolution"
-    access:
-      exclusive: true
-      preferred:
-        types: ["friction"]
-
-  session_id:
-    data_type: "string"
-    required: true
-    description: "UUID of the session transcript this was distilled from"
-    access:
-      exclusive: true
-      required:
-        types: ["diary-entry"]
-
-  agent:
-    data_type: "string"
-    required: true
-    description: "Which agent ran the session ('interactive' for human sessions, or agent name)"
-    access:
-      exclusive: true
-      required:
-        types: ["diary-entry"]
-
-  carry_forward:
-    data_type: "string"
-    required: false
-    description: "Proto-patterns not yet mature enough for memory; compress pass reads these across entries to detect confirmed patterns"
-    access:
-      exclusive: true
-      preferred:
-        types: ["diary-entry"]
-
   format:
     data_type: "enum"
     required: false
     values: ["video", "audio", "presentation", "other"]
+    description: "Intended presentation format for this script"
     access:
       exclusive: true
       preferred:
@@ -749,33 +677,16 @@ attributes:
     item_type: "string"
     cardinality: "many"
     required: false
-    description: "Names or identifiers of participants"
+    description: "Names or identifiers of participants in this event"
     access:
       exclusive: true
       preferred:
-        types: ["conversation"]
-
-  topic:
-    data_type: "string"
-    required: false
-    description: "Brief description of what was discussed"
-    access:
-      exclusive: true
-      preferred:
-        types: ["conversation"]
-
-  content_scope:
-    data_type: "string"
-    required: false
-    description: "What this collection is meant to contain"
-    access:
-      exclusive: true
-      preferred:
-        types: ["library"]
+        groupings: ["events"]
 
   published_date:
     data_type: "date"
     required: false
+    description: "Date this content was published or publicly released"
     access:
       exclusive: false
       preferred:
@@ -813,6 +724,7 @@ attributes:
   target_date:
     data_type: "date"
     required: false
+    description: "Projected completion date for this milestone. Not a deadline — use due (on tasks/tickets) for hard cutoffs."
     access:
       exclusive: true
       preferred:
@@ -906,7 +818,7 @@ attributes:
       preferred:
         types: ["job-opportunity"]
 
-  application_stage:
+  application_status:
     data_type: "enum"
     required: false
     values: ["saved", "skipped", "applied", "screening", "interviewing", "offer", "closed"]
@@ -956,55 +868,50 @@ attributes:
       preferred:
         types: ["organization"]
 
+  # --- Messaging attributes (reserved) ---
+  # These attributes belong to the messaging grouping (comment, review types).
+  # The types are not part of the managed schema but ship as a first-party extension.
+  # Names are reserved here to prevent collision with user-defined attributes.
+
   comment_type:
     data_type: "enum"
     required: false
     values: ["discussion", "flag", "action_required", "status_update"]
     default: "discussion"
-    description: "The nature of this comment — discussion is a general annotation, flag marks something for attention, action_required requests a response, status_update records a state change"
+    description: "Reserved — messaging grouping. The nature of a comment: discussion, flag, action_required, or status_update."
     access:
-      exclusive: true
-      preferred:
-        types: ["comment"]
+      exclusive: false
 
   file_target:
     data_type: "string"
     required: false
-    description: "Filename within the parent entity that this comment is attached to. When set, the comment is file-level rather than entity-level."
+    description: "Reserved — messaging grouping. Filename within the parent entity a comment is attached to; when set, the comment is file-level rather than entity-level."
     access:
-      exclusive: true
-      preferred:
-        groupings: ["messaging"]
+      exclusive: false
 
   gate:
     data_type: "enum"
     required: false
     values: ["pre_execution", "post_execution"]
-    description: "Which lifecycle gate this review belongs to — pre_execution (BSC/user check, before ready) or post_execution (work review, at under_review/done_working)"
+    description: "Reserved — messaging grouping. Which lifecycle gate a review belongs to: pre_execution (before ready) or post_execution (at under_review/done_working)."
     access:
-      exclusive: true
-      required:
-        types: ["review"]
+      exclusive: false
 
   reviewer_role:
     data_type: "enum"
     required: false
     values: ["peer", "owner", "user"]
-    description: "The role perspective of this reviewer. peer = L2 agent focused on the work itself; owner = L1 agent with project context and ownership accountability; user = human reviewer. Determines which gate slot this review satisfies."
+    description: "Reserved — messaging grouping. Role perspective of the reviewer: peer (work-focused), owner (project context), or user (human reviewer)."
     access:
-      exclusive: true
-      required:
-        types: ["review"]
+      exclusive: false
 
   verdict:
     data_type: "enum"
     required: false
     values: ["pass", "conditional", "fail"]
-    description: "The outcome of this review or check. pass = no required fixes; conditional = required fixes identified, gate blocked until resolved; fail = fundamental problem, triggers rollback cascade."
+    description: "Reserved — messaging grouping. Outcome of a review: pass (no fixes needed), conditional (fixes required), or fail (fundamental problem)."
     access:
-      exclusive: true
-      required:
-        types: ["review"]
+      exclusive: false
 # Dimensional Status Model
 #
 # The 8 status dimensions replace per-type flat status attributes.
@@ -1065,8 +972,6 @@ dimensions:
     question: "How is this doing?"
     values: ["growing", "stable", "declining", "problematic", "undefined"]
     default: "undefined"
-    type_defaults:
-      friction: "problematic"    # frictions are by definition something wrong
     access:
       exclusive: true
       preferred:
@@ -1086,9 +991,7 @@ dimensions:
     question: "Where is this in its lifecycle?"
     values: ["forming", "established", "aging", "retired"]
     type_defaults:
-      friction: "established"   # an observed friction is already a real-world condition
       agent: "established"      # runtime agents are operational when created
-      goal: "forming"           # goals begin as aspirations being defined
     access:
       exclusive: true
       preferred:

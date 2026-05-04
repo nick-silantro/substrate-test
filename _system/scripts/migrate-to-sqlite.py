@@ -81,11 +81,13 @@ def main():
         print("Edit the files manually to correct the YAML, then re-run migration.")
         sys.exit(1)
 
-    # Remove existing DB
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+    # Build into a temp file so the live DB is never touched until the rebuild
+    # is fully complete. If interrupted mid-run, the live DB is untouched.
+    tmp_path = DB_PATH + ".tmp"
+    if os.path.exists(tmp_path):
+        os.remove(tmp_path)
 
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(tmp_path)
     c = conn.cursor()
 
     # Create tables.
@@ -510,7 +512,24 @@ def main():
     for row in c.fetchall():
         print(f"  {row[0]}: {row[1]}")
 
+    # Checkpoint and close the temp DB so the WAL is fully flushed before rename.
+    c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     conn.close()
+
+    # Remove temp WAL/SHM artifacts from the build process.
+    for ext in ("-shm", "-wal"):
+        sidecar = tmp_path + ext
+        if os.path.exists(sidecar):
+            os.remove(sidecar)
+
+    # Remove stale WAL/SHM for the old DB — they'll be orphaned after the rename.
+    for ext in ("-shm", "-wal"):
+        sidecar = DB_PATH + ext
+        if os.path.exists(sidecar):
+            os.remove(sidecar)
+
+    # Atomic swap: live DB only changes when the full build is on disk.
+    os.replace(tmp_path, DB_PATH)
     print(f"\nDatabase written to: {DB_PATH}")
 
 

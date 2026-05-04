@@ -1,0 +1,25 @@
+# systemd user timer for the Substrate trigger evaluator (Linux).
+#
+# Runs substrate-evaluate-triggers.service every 5 minutes, matching
+# the macOS launchd StartInterval of 300 seconds.
+#
+# Placeholders: none (this file needs no substitution).
+#
+# Install (handled automatically by `substrate init`):
+#   install -Dm644 substrate-evaluate-triggers.timer ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now substrate-evaluate-triggers.timer
+#
+# Status:
+#   systemctl --user status substrate-evaluate-triggers.timer
+#   systemctl --user list-timers
+
+[Unit]
+Description=Run Substrate Trigger Evaluator every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target

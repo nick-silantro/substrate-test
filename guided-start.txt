@@ -24,7 +24,7 @@ The mental model: a second brain that's actually organized.
 
 Check these before running the installer:
 
-- **Claude Code** — run `claude --version`. If missing, send them to https://claude.ai/code and wait.
+- **Claude Code or Claude Co-work** — run `claude --version`. If missing, send them to https://claude.ai/code and wait.
 - **Python 3.9+** — run `python3 --version` (Mac/Linux) or `python --version` (Windows).
 - **Git** — run `git --version`.
 
@@ -58,18 +58,106 @@ Walk them through each step as it runs:
 
 **Background services:**
 - *Mac* — launchd services installed automatically (entity-watcher, evaluate-triggers)
-- *Linux* — systemd unit written; prompt the user to run: `systemctl --user enable --now substrate-entity-watcher`
+- *Linux* — systemd user units installed and enabled automatically (entity-watcher, evaluate-triggers timer). If auto-enable fails, the installer prints the manual commands.
 - *Windows* — Task Scheduler tasks installed automatically (EntityWatcher, EvaluateTriggers)
 
-When it prints "Substrate is ready." — you're done with install.
+When it prints "Substrate is ready." — installation is complete. Note the workspace path shown underneath. Continue to Setup below.
 
 ---
 
-## Opening the Workspace
+## Setup
 
-Tell the user: open the Substrate folder (`~/substrate`, or whatever path they chose) as a project in Claude Code. That's it. No special setup needed.
+You just installed a knowledge graph. Now help the person fill it in.
 
-Once inside, Claude will load orientation automatically from `CLAUDE.md`. The workspace starts empty — it grows through use.
+Shift your posture: you're no longer running an installer — you're a knowledgeable friend getting oriented before you start helping. Keep it conversational. Don't explain what Substrate is again. Just ask, listen, and remember — you'll use what they tell you at the end.
+
+### Get their name
+
+Start here:
+
+> "Before we set up your workspace — what's your name? And what should I call you?"
+
+You need both their full name (for records) and what they prefer to be called. If they give only one, use what you have.
+
+### Four questions
+
+**1. What gets lost?**
+
+> "What's the thing that currently gets lost — decisions you made, context you built up, threads you were tracking? What do you wish you could just find?"
+
+Start here. Their answer reveals what kinds of things belong in this workspace — which lets you create the right example entities at the end without asking a separate question.
+
+Follow-up if they name a specific domain or project: "Tell me more — what does the mess look like?"
+Follow-up if they say "everything": "What's the one that costs you the most when you lose it?"
+
+**2. What are you working on?**
+
+> "What are you actually working on right now — the thing that's most alive for you?"
+
+This establishes what the workspace is for. Comes after pain because starting with their experience tells you more than starting with their resume.
+
+Follow-up only if the answer is ambiguous or points at something worth pulling — ask about the mode they're in (building, managing, researching, something else). Don't ask if it's already obvious. Default is brevity. If they mention a near-term goal or deadline, note it.
+
+**3. How technical are you — really?**
+
+> "When something technical comes up — an error, a config setting, a command — what works best: do you want me to walk you through it in full detail, or translate it into plain language and handle the technical parts myself?"
+
+This is a question about communication preference, not capability. It shapes how you show up in every session after this one.
+
+Follow-up if their answer lands in the middle: "If you had to pick a side — full control, or I handle it and explain the outcome — which feels more comfortable?"
+
+**4. How do you want to work with this assistant?**
+
+> "Some people want an AI that takes initiative and connects dots proactively. Others want it to stay in its lane and only do what's asked. What's worked for you, and what's driven you crazy?"
+
+This one is the bookend. It rarely needs follow-up — the answer is usually self-contained. If they name a specific frustration, capture it verbatim.
+
+### Synthesize and create
+
+Tell them you're setting up their workspace now.
+
+Write the following to `{workspace_path}/_system/onboarding-input.json`, replacing all bracketed content with what you learned in the conversation:
+
+```json
+{
+  "user": {
+    "call_name": "their preferred call name",
+    "full_name": "their full name, or same as call_name if not given",
+    "focus": "1–3 sentences on what they are working on right now",
+    "working_style": "Their technical preference (from Q3) and how they want to work with AI (from Q4). Write this as a paragraph an agent would actually use to calibrate its behavior."
+  },
+  "narrative": {
+    "focus": "1–3 sentences — what this workspace is for, what they are trying to accomplish",
+    "motion": "What is moving right now, in which direction, how fast. This is feel, not a list — write it like someone describing the current of a river, not a project status.",
+    "workspace_state": "New workspace. Just getting started.",
+    "user_state": "Anything personal they mentioned — a deadline, a situation, something they are navigating. Use empty string if nothing came up."
+  },
+  "bulletin_board": {
+    "seed": "An agent-facing note, not a user-facing message. One short paragraph: who they are, what they are building, their pain point, the key thing to help with. If they mentioned a near-term goal or deadline, end with it."
+  },
+  "entities": [
+    {
+      "type": "project",
+      "name": "The main thing they mentioned",
+      "description": "One sentence, in their own words if possible."
+    }
+  ]
+}
+```
+
+1–2 entities is the right number. Let them emerge from Q1 and Q2 — don't ask a separate question about what to create.
+
+Then run:
+
+```
+cd {workspace_path} && substrate onboard --from _system/onboarding-input.json
+```
+
+After it completes, tell the user:
+
+> "Your workspace is set up. Open [workspace_path] as a project in Claude Code or Claude Co-work. Your profile and context will be in place from your first session."
+
+Use the workspace path that was printed during install.
 
 ---
 
@@ -95,18 +183,6 @@ python -m venv $env:USERPROFILE\substrate\_system\venv
 $env:USERPROFILE\substrate\_system\venv\Scripts\pip install watchdog
 schtasks /Run /TN "Substrate\EntityWatcher"
 ```
-
----
-
-## What to Tell Them Next
-
-Once the workspace is open:
-
-- Run `substrate context agent-orientation` to load the full operational orientation for Claude.
-- Start by adding something real: a project they're working on, a person they want to track, a decision they need to make.
-- Everything is stored as files on their machine. They own it.
-
-Stay with them until they understand what the graph is and have done something in it. That's the handoff point.
 
 ---
 get-substrate.com
