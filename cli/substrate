@@ -1518,6 +1518,19 @@ def cmd_init(rest: list[str]) -> None:
         _install_services(target, ep, reinstall=args.reinit)
         _setup_venv(target)
 
+    # Set up semantic search (venv + fastembed + model). Model is cached at
+    # ~/.substrate/model-cache/ so this is only slow on the very first install.
+    setup_search = ep / "_system" / "scripts" / "setup-search.py"
+    if setup_search.exists():
+        print("\nSetting up semantic search...")
+        result = subprocess.run(
+            [sys.executable, str(setup_search)],
+            env={**os.environ, "SUBSTRATE_PATH": str(target), "SUBSTRATE_ENGINE_PATH": str(ep)},
+        )
+        if result.returncode != 0:
+            print("  Warning: search setup failed — semantic search will not be available.")
+            print("  Run 'substrate search setup' manually when you have a network connection.")
+
     # Run update check once immediately so pending-updates.md is ready
     # before the first session, rather than waiting for the 30-minute timer.
     check_script = ep / "_system" / "scripts" / "check-for-updates.py"
@@ -1947,6 +1960,16 @@ def cmd_update(_rest: list[str]) -> None:
                 snooze_file.unlink()
         except Exception:
             pass
+
+    # --- Ensure semantic search is set up (no-op if already installed) ---
+    setup_search = ep / "_system" / "scripts" / "setup-search.py"
+    if setup_search.exists():
+        env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+        result = subprocess.run([sys.executable, str(setup_search)], env=env, check=False, capture_output=True)
+        if result.returncode == 0:
+            print(f"  ✓ Semantic search ready")
+        else:
+            print(f"  ⚠ Search setup failed — run 'substrate search setup' manually")
 
     # --- Refresh pending-updates.md now that engine is current ---
     check_script = ep / "_system" / "scripts" / "check-for-updates.py"

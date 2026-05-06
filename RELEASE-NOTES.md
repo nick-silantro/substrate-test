@@ -1,5 +1,13 @@
 # Substrate Release Notes
 
+## 0.1.9
+
+**Semantic search always on**
+
+- Semantic search is now set up automatically during `substrate init` and `substrate update`. No separate opt-in step required.
+- The embedding model is cached at `~/.substrate/model-cache/` so it only downloads once per machine.
+- If setup fails (no network, model unavailable), the install or update still completes — run `substrate search setup` manually when you have a connection.
+
 ## 0.1.8
 
 **Release notes formatting**
