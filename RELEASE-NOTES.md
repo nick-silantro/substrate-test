@@ -1,5 +1,14 @@
 # Substrate Release Notes
 
+## 0.1.6
+
+**Workspace migration: engine path pinning**
+
+This update includes an automatic migration that runs once on each workspace.
+It pins the engine path in your workspace config so updates always use the
+correct installed engine, regardless of any global environment variables on
+your machine. No action required — it runs as part of `substrate update`.
+
 ## 0.1.5
 
 **Housekeeping**
