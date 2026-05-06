@@ -3,7 +3,7 @@
 Check for available updates to Substrate and the Anthropic stack.
 
 Runs on a timer via background services. Every run is logged to
-_system/update-check-history.log regardless of findings — this log is the
+_system/logs/update-check-history.log regardless of findings — this log is the
 primary testing artifact to confirm the service is firing.
 
 If updates are available, writes _system/pending-updates.md for agents to
@@ -29,7 +29,7 @@ SUBSTRATE_PATH = os.environ.get(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
 
-LOG_FILE = Path(SUBSTRATE_PATH) / "_system" / "update-check-history.log"
+LOG_FILE = Path(SUBSTRATE_PATH) / "_system" / "logs" / "update-check-history.log"
 PENDING_FILE = Path(SUBSTRATE_PATH) / "_system" / "docs" / "pending-updates.md"
 SNOOZE_FILE = Path(SUBSTRATE_PATH) / "_system" / "update-snooze.yaml"
 
