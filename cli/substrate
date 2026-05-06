@@ -255,14 +255,16 @@ def _check_alias_collisions(schema, overlay_aliases: dict) -> list[dict]:
 
 
 def instance_path() -> Path:
-    # 1. Explicit env var
-    ip = os.environ.get("SUBSTRATE_PATH")
-    if ip:
-        return Path(ip).expanduser().resolve()
-    # 2. CWD detection — walk up to find a Substrate workspace
+    # 1. CWD detection — if we're inside a workspace, use it unconditionally.
+    # This ensures the active project always wins over environment variables,
+    # which is correct when a user has multiple workspaces or a stale SUBSTRATE_PATH.
     found = _find_workspace_from_cwd()
     if found:
         return found
+    # 2. Explicit env var — respected when not inside any workspace
+    ip = os.environ.get("SUBSTRATE_PATH")
+    if ip:
+        return Path(ip).expanduser().resolve()
     # 3. Default
     default = Path("~/substrate").expanduser()
     if default.exists():
