@@ -93,6 +93,14 @@ def _venv_pip() -> Path | None:
 # Individual checks
 # ---------------------------------------------------------------------------
 
+def _parse_version(s: str) -> tuple[int, ...]:
+    """Parse '0.1.0' into (0, 1, 0). Returns (0, 0, 0) on failure."""
+    try:
+        return tuple(int(x) for x in s.strip().split("."))
+    except (ValueError, AttributeError):
+        return (0, 0, 0)
+
+
 def check_substrate() -> tuple[bool | None, str]:
     """Return (update_available, detail). None means check failed."""
     try:
@@ -106,6 +114,31 @@ def check_substrate() -> tuple[bool | None, str]:
             cwd=ep, capture_output=True, text=True, timeout=30
         )
 
+        # Version-aware comparison: read VERSION file from local and remote.
+        local_version_file = ep / "VERSION"
+        local_version = local_version_file.read_text().strip() if local_version_file.exists() else None
+
+        remote_result = subprocess.run(
+            ["git", "show", f"origin/{channel}:VERSION"],
+            cwd=ep, capture_output=True, text=True, timeout=10
+        )
+        remote_version = remote_result.stdout.strip() if remote_result.returncode == 0 else None
+
+        if local_version and remote_version:
+            if _parse_version(remote_version) > _parse_version(local_version):
+                snooze = _read_snooze()
+                if snooze.get("substrate") == remote_version:
+                    return False, f"snoozed ({remote_version})"
+                return True, f"{local_version} → {remote_version}"
+            return False, f"up to date ({local_version})"
+
+        if remote_version and not local_version:
+            snooze = _read_snooze()
+            if snooze.get("substrate") == remote_version:
+                return False, f"snoozed ({remote_version})"
+            return True, f"→ {remote_version}"
+
+        # Fall back to commit count when VERSION file is absent on both sides.
         result = subprocess.run(
             ["git", "rev-list", f"HEAD..origin/{channel}", "--count"],
             cwd=ep, capture_output=True, text=True, timeout=10
@@ -123,7 +156,7 @@ def check_substrate() -> tuple[bool | None, str]:
             if latest_hash and snooze.get("substrate") == latest_hash:
                 return False, f"snoozed ({latest_hash[:8]})"
             return True, f"{count} new commit(s) on origin/{channel}"
-        return False, f"up to date (origin/{channel})"
+        return False, "up to date"
     except Exception as e:
         return None, str(e)
 
