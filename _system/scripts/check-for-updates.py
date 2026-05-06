@@ -178,7 +178,7 @@ def check_agent_sdk() -> tuple[bool | None, str, str]:
                 current = data.get("version")
                 break
         if not current:
-            return None, "claude-agent-sdk not found in node_modules", ""
+            return False, "not installed", ""
 
         npm_result = subprocess.run(
             ["npm", "view", "@anthropic-ai/claude-agent-sdk", "version"],

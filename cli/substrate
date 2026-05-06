@@ -1948,6 +1948,12 @@ def cmd_update(_rest: list[str]) -> None:
         except Exception:
             pass
 
+    # --- Refresh pending-updates.md now that engine is current ---
+    check_script = ep / "_system" / "scripts" / "check-for-updates.py"
+    if check_script.exists():
+        env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+        subprocess.run([sys.executable, str(check_script)], env=env, check=False, capture_output=True)
+
 
 def cmd_sync(_rest: list[str]) -> None:
     """Link skills from engine to instance and rebuild the SQLite index."""
