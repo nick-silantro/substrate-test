@@ -104,13 +104,43 @@ def _parse_version(s: str) -> tuple[int, ...]:
         return (0, 0, 0)
 
 
-def check_substrate() -> tuple[bool | None, str]:
-    """Return (update_available, detail). None means check failed."""
+def _fetch_substrate_release_notes(ep: Path, channel: str, local_version: str | None, remote_version: str) -> str:
+    """Fetch RELEASE-NOTES.md from the remote and extract sections newer than local_version."""
+    try:
+        result = subprocess.run(
+            ["git", "show", f"origin/{channel}:RELEASE-NOTES.md"],
+            cwd=ep, capture_output=True, text=True, timeout=10
+        )
+        if result.returncode != 0:
+            return ""
+
+        content = result.stdout
+        local_v = _parse_version(local_version) if local_version else (0, 0, 0)
+
+        # Extract all version sections newer than local_version, up to and including remote_version.
+        import re
+        sections = re.split(r"(?=^## \d)", content, flags=re.MULTILINE)
+        included = []
+        for section in sections:
+            m = re.match(r"^## (\d[\d.]+)", section)
+            if not m:
+                continue
+            v = _parse_version(m.group(1))
+            if v > local_v and v <= _parse_version(remote_version):
+                included.append(section.strip())
+
+        return "\n\n".join(included)
+    except Exception:
+        return ""
+
+
+def check_substrate() -> tuple[bool | None, str, str]:
+    """Return (update_available, detail, release_notes). None means check failed."""
     try:
         ep = _engine_path()
         channel = _update_channel()
         if not ep.exists():
-            return None, "engine path not found"
+            return None, "engine path not found", ""
 
         subprocess.run(
             ["git", "fetch", "origin"],
@@ -131,15 +161,17 @@ def check_substrate() -> tuple[bool | None, str]:
             if _parse_version(remote_version) > _parse_version(local_version):
                 snooze = _read_snooze()
                 if snooze.get("substrate") == remote_version:
-                    return False, f"snoozed ({remote_version})"
-                return True, f"{local_version} → {remote_version}"
-            return False, f"up to date ({local_version})"
+                    return False, f"snoozed ({remote_version})", ""
+                notes = _fetch_substrate_release_notes(ep, channel, local_version, remote_version)
+                return True, f"{local_version} → {remote_version}", notes
+            return False, f"up to date ({local_version})", ""
 
         if remote_version and not local_version:
             snooze = _read_snooze()
             if snooze.get("substrate") == remote_version:
-                return False, f"snoozed ({remote_version})"
-            return True, f"→ {remote_version}"
+                return False, f"snoozed ({remote_version})", ""
+            notes = _fetch_substrate_release_notes(ep, channel, None, remote_version)
+            return True, f"→ {remote_version}", notes
 
         # Fall back to commit count when VERSION file is absent on both sides.
         result = subprocess.run(
@@ -147,7 +179,7 @@ def check_substrate() -> tuple[bool | None, str]:
             cwd=ep, capture_output=True, text=True, timeout=10
         )
         if result.returncode != 0:
-            return None, f"git rev-list failed: {result.stderr.strip()}"
+            return None, f"git rev-list failed: {result.stderr.strip()}", ""
 
         count = int(result.stdout.strip())
         if count > 0:
@@ -157,11 +189,11 @@ def check_substrate() -> tuple[bool | None, str]:
             ).stdout.strip()
             snooze = _read_snooze()
             if latest_hash and snooze.get("substrate") == latest_hash:
-                return False, f"snoozed ({latest_hash[:8]})"
-            return True, f"{count} new commit(s) on origin/{channel}"
-        return False, "up to date"
+                return False, f"snoozed ({latest_hash[:8]})", ""
+            return True, f"{count} new commit(s) on origin/{channel}", ""
+        return False, "up to date", ""
     except Exception as e:
-        return None, str(e)
+        return None, str(e), ""
 
 
 def check_agent_sdk() -> tuple[bool | None, str, str]:
@@ -274,6 +306,7 @@ def check_claude_cli() -> tuple[bool | None, str]:
 
 def _write_pending(
     substrate_detail: str | None,
+    substrate_notes: str | None,
     sdk_detail: str | None,
     sdk_changelog: str | None,
     cli_detail: str | None,
@@ -294,6 +327,8 @@ def _write_pending(
             f"New version available: {substrate_detail}\n\n"
             "```\nsubstrate update\n```\n\n"
         )
+        if substrate_notes:
+            lines.append(f"### What's new\n\n{substrate_notes}\n\n")
 
     if sdk_detail or cli_detail:
         lines.append("## Anthropic Stack\n\n")
@@ -312,7 +347,7 @@ def _write_pending(
 def main():
     _log("check started")
 
-    substrate_available, substrate_detail = check_substrate()
+    substrate_available, substrate_detail, substrate_notes = check_substrate()
     _log(f"  substrate: {substrate_detail}")
 
     sdk_available, sdk_detail, sdk_changelog = check_agent_sdk()
@@ -327,6 +362,7 @@ def main():
     if has_updates:
         _write_pending(
             substrate_detail=substrate_detail if substrate_available else None,
+            substrate_notes=substrate_notes if substrate_available else None,
             sdk_detail=sdk_detail if sdk_available else None,
             sdk_changelog=sdk_changelog if sdk_available else None,
             cli_detail=cli_detail if cli_available else None,
