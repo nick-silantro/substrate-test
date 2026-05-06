@@ -127,7 +127,7 @@ def _fetch_substrate_release_notes(ep: Path, channel: str, local_version: str | 
                 continue
             v = _parse_version(m.group(1))
             if v > local_v and v <= _parse_version(remote_version):
-                included.append(section.strip())
+                included.append(section.strip().replace("## ", "### ", 1))
 
         return "\n\n".join(included)
     except Exception:
@@ -361,7 +361,7 @@ def _write_pending(
                 f"Ask the agent what changed before approving if you'd like details.\n\n"
             )
         if substrate_notes:
-            lines.append(f"### What's new\n\n{substrate_notes}\n\n")
+            lines.append(f"{substrate_notes}\n\n")
 
     if sdk_detail or cli_detail:
         lines.append("## Anthropic Stack\n\n")

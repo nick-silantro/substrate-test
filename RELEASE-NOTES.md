@@ -1,5 +1,11 @@
 # Substrate Release Notes
 
+## 0.1.8
+
+**Release notes formatting**
+
+- Version headers in pending update notices are now H3, so multiple skipped versions each get a clean section without a redundant "What's new" label.
+
 ## 0.1.7
 
 **Migration transparency**
