@@ -28,7 +28,7 @@
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>com.substrate.entity-watcher</string>
+  <string>com.substrate.entity-watcher.__SLUG__</string>
 
   <key>ProgramArguments</key>
   <array>

@@ -26,7 +26,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.substrate.evaluate-triggers</string>
+    <string>com.substrate.evaluate-triggers.__SLUG__</string>
 
     <key>ProgramArguments</key>
     <array>

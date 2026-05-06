@@ -4,24 +4,28 @@
   Runs every 30 minutes to check for Substrate and Anthropic stack updates.
   NOTE: 30-minute interval is intentional for testing. Increase for production.
 
-  Placeholders — substitute before installing:
+  Placeholders — substituted automatically by `substrate init`:
     __WORKSPACE__   absolute path to the workspace root (e.g. /Users/alice/substrate)
     __ENGINE__      absolute path to the engine install (e.g. /Users/alice/.substrate/engine)
     __HOME__        user's home directory (e.g. /Users/alice)
     __SUBSTRATE__   absolute path to the substrate CLI binary
+    __SLUG__        workspace slug derived from workspace name (e.g. substrate, my-workspace)
+
+  Installed as: com.substrate.check-for-updates.<slug>.plist
+  Label:        com.substrate.check-for-updates.<slug>
 
   Install:
-    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.check-for-updates.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.check-for-updates.<slug>.plist
 
   Uninstall:
-    launchctl bootout gui/$(id -u)/com.substrate.check-for-updates
-    rm ~/Library/LaunchAgents/com.substrate.check-for-updates.plist
+    launchctl bootout gui/$(id -u)/com.substrate.check-for-updates.<slug>
+    rm ~/Library/LaunchAgents/com.substrate.check-for-updates.<slug>.plist
 -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.substrate.check-for-updates</string>
+    <string>com.substrate.check-for-updates.__SLUG__</string>
 
     <key>ProgramArguments</key>
     <array>

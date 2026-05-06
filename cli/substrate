@@ -1039,6 +1039,7 @@ def _setup_venv(target: Path) -> None:
 def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> None:
     """Generate service unit files from deploy templates and install them."""
     import platform
+    import re as _re
 
     deploy_dir = ep / "_system" / "deploy"
     if not deploy_dir.exists():
@@ -1046,12 +1047,18 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
 
     home = Path.home()
     substrate_bin = Path(sys.argv[0]).resolve()
+
+    # Workspace slug — unique suffix baked into every service label so multiple
+    # workspaces on one machine each get their own independent services.
+    slug = _re.sub(r'[^a-z0-9]+', '-', target.name.lower()).strip('-') or 'workspace'
+
     subs = {
         "__WORKSPACE__": str(target),
         "__ENGINE__":    str(ep),
         "__HOME__":      str(home),
         "__USER__":      os.environ.get("USER", home.name),
         "__SUBSTRATE__": str(substrate_bin),
+        "__SLUG__":      slug,
     }
 
     def apply_subs(text: str) -> str:
@@ -1067,16 +1074,22 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
         uid = os.getuid()
         domain = f"gui/{uid}"
 
+        if reinstall:
+            # Clean up old singleton-format plists (pre-slug) that belong to this workspace.
+            for template in deploy_dir.glob("com.substrate.*.plist"):
+                old_dest = agents_dir / template.name
+                if old_dest.exists() and str(target) in old_dest.read_text():
+                    old_label = template.stem
+                    subprocess.run(["launchctl", "bootout", f"{domain}/{old_label}"],
+                                   capture_output=True)
+                    old_dest.unlink(missing_ok=True)
+
         for template in sorted(deploy_dir.glob("com.substrate.*.plist")):
-            label = template.stem
-            dest = agents_dir / template.name
+            label = f"{template.stem}.{slug}"
+            dest = agents_dir / f"{label}.plist"
 
             if dest.exists() and not reinstall:
                 print(f"  • {label}: already installed (skipping — use --reinit to update)")
-                continue
-
-            if dest.exists() and str(target) not in dest.read_text():
-                print(f"  • {label}: skipping — installed plist belongs to a different workspace")
                 continue
 
             dest.write_text(apply_subs(template.read_text()))
@@ -1097,21 +1110,29 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
         user_systemd.mkdir(parents=True, exist_ok=True)
         (target / "_system" / "logs").mkdir(parents=True, exist_ok=True)
 
+        if reinstall:
+            # Clean up old singleton-format units (pre-slug) that belong to this workspace.
+            for template in list(deploy_dir.glob("substrate-*.service")) + \
+                            list(deploy_dir.glob("substrate-*.timer")):
+                old_dest = user_systemd / template.name
+                if old_dest.exists() and str(target) in old_dest.read_text():
+                    subprocess.run(
+                        ["systemctl", "--user", "disable", "--now", template.name],
+                        capture_output=True,
+                    )
+                    old_dest.unlink(missing_ok=True)
+
         newly_written: list[str] = []
 
         templates = sorted(deploy_dir.glob("substrate-*.service")) + \
                     sorted(deploy_dir.glob("substrate-*.timer"))
         for template in templates:
-            unit_name = template.name
-            unit_label = template.stem
+            unit_name = f"{template.stem}-{slug}{template.suffix}"
+            unit_label = f"{template.stem}-{slug}"
             dest = user_systemd / unit_name
 
             if dest.exists() and not reinstall:
                 print(f"  • {unit_label}: already installed (skipping — use --reinit to update)")
-                continue
-
-            if dest.exists() and str(target) not in dest.read_text():
-                print(f"  • {unit_label}: skipping — installed unit belongs to a different workspace")
                 continue
 
             if reinstall and dest.exists():
@@ -1146,14 +1167,14 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
                 print(f"      systemctl --user enable --now {unit_name}")
 
     elif system == "Windows":
-        _install_services_windows(target, ep, home, substrate_bin, reinstall)
+        _install_services_windows(target, ep, home, substrate_bin, reinstall, slug)
 
     else:
         print(f"  (service installation not supported on {system})")
 
 
 def _install_services_windows(
-    target: Path, ep: Path, home: Path, substrate_bin: Path, reinstall: bool
+    target: Path, ep: Path, home: Path, substrate_bin: Path, reinstall: bool, slug: str
 ) -> None:
     """Register Substrate background services as Windows Task Scheduler tasks.
 
@@ -1171,9 +1192,9 @@ def _install_services_windows(
 
     tasks = [
         {
-            "label": "substrate-entity-watcher",
-            "task_name": "Substrate\\EntityWatcher",
-            "cmd_name": "_run-entity-watcher.cmd",
+            "label": f"substrate-entity-watcher-{slug}",
+            "task_name": f"Substrate\\EntityWatcher-{slug}",
+            "cmd_name": f"_run-entity-watcher-{slug}.cmd",
             "cmd_body": (
                 f'@echo off\n'
                 f'set SUBSTRATE_PATH={target}\n'
@@ -1184,9 +1205,9 @@ def _install_services_windows(
             "start_immediately": True,
         },
         {
-            "label": "substrate-evaluate-triggers",
-            "task_name": "Substrate\\EvaluateTriggers",
-            "cmd_name": "_run-evaluate-triggers.cmd",
+            "label": f"substrate-evaluate-triggers-{slug}",
+            "task_name": f"Substrate\\EvaluateTriggers-{slug}",
+            "cmd_name": f"_run-evaluate-triggers-{slug}.cmd",
             "cmd_body": (
                 f'@echo off\n'
                 f'set SUBSTRATE_PATH={target}\n'
@@ -1198,9 +1219,9 @@ def _install_services_windows(
             "start_immediately": False,
         },
         {
-            "label": "substrate-check-for-updates",
-            "task_name": "Substrate\\CheckForUpdates",
-            "cmd_name": "_run-check-for-updates.cmd",
+            "label": f"substrate-check-for-updates-{slug}",
+            "task_name": f"Substrate\\CheckForUpdates-{slug}",
+            "cmd_name": f"_run-check-for-updates-{slug}.cmd",
             "cmd_body": (
                 f'@echo off\n'
                 f'set SUBSTRATE_PATH={target}\n'
@@ -1564,6 +1585,16 @@ This removes these instructions permanently.
         print("\nInstalling background services...")
         _install_services(target, ep, reinstall=args.reinit)
         _setup_venv(target)
+
+    # Run update check once immediately so pending-updates.md is ready
+    # before the first session, rather than waiting for the 30-minute timer.
+    check_script = ep / "_system" / "scripts" / "check-for-updates.py"
+    if check_script.exists():
+        subprocess.run(
+            [sys.executable, str(check_script)],
+            env={**os.environ, "SUBSTRATE_PATH": str(target), "SUBSTRATE_ENGINE_PATH": str(ep)},
+            capture_output=True,
+        )
 
     print()
     print("Next steps:")
