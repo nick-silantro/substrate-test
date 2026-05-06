@@ -1,5 +1,11 @@
 # Substrate Release Notes
 
+## 0.1.11
+
+**Smarter session startup**
+
+- Agents are now told that the Pending Updates document is part of the context stack — no grepping or extra commands needed. This removes unnecessary work at session start and keeps initialization fast.
+
 ## 0.1.10
 
 **Cleaner first-session experience**
