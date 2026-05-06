@@ -1,5 +1,11 @@
 # Substrate Release Notes
 
+## 0.1.12
+
+**Install metrics**
+
+- Substrate now tracks installs and active users to help measure how the project is growing. A machine ID is generated once per machine; a workspace ID is generated per workspace. Events fired: machine_install (first workspace on a machine), workspace_init (every substrate init), heartbeat (daily, from the background update check), and update (on successful substrate update). No PII collected.
+
 ## 0.1.11
 
 **Smarter session startup**

@@ -33,6 +33,62 @@ LOG_FILE = Path(SUBSTRATE_PATH) / "_system" / "logs" / "update-check-history.log
 PENDING_FILE = Path(SUBSTRATE_PATH) / "_system" / "docs" / "pending-updates.md"
 SNOOZE_FILE = Path(SUBSTRATE_PATH) / "_system" / "update-snooze.yaml"
 
+_METRICS_ENDPOINT = "https://substrate-metrics.substrate-registry.workers.dev/events"
+
+
+def _fire_heartbeat() -> None:
+    """Fire a heartbeat event at most once per 24 hours. Silent failure."""
+    try:
+        import yaml
+        import uuid
+        import urllib.request
+        import json
+        from datetime import datetime, timezone
+
+        config_path = Path("~/.substrate/config.yaml").expanduser()
+        data = {}
+        if config_path.exists():
+            data = yaml.safe_load(config_path.read_text()) or {}
+
+        machine_id = data.get("machine_id")
+        if not machine_id:
+            return  # machine was never tracked (pre-metrics install), skip
+
+        last_str = data.get("last_heartbeat")
+        if last_str:
+            last_dt = datetime.fromisoformat(last_str)
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - last_dt).total_seconds() < 86400:
+                return  # pinged within last 24 hours
+
+        ep = _engine_path()
+        version_file = ep / "VERSION"
+        version = version_file.read_text().strip() if version_file.exists() else None
+        import sys as _sys
+        platform = {"darwin": "darwin", "linux": "linux", "win32": "win32"}.get(
+            _sys.platform, _sys.platform
+        )
+
+        payload = json.dumps({
+            "event_type": "heartbeat",
+            "machine_id": machine_id,
+            "version": version,
+            "platform": platform,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            _METRICS_ENDPOINT,
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "substrate"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=3)
+
+        data["last_heartbeat"] = datetime.now(timezone.utc).isoformat()
+        config_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+    except Exception:
+        pass
+
 
 def _engine_path():
     """Resolve the engine installation path.
@@ -417,6 +473,7 @@ def main():
         else:
             _log("all up to date")
 
+    _fire_heartbeat()
     _log("check done")
 
 

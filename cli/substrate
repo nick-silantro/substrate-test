@@ -1016,6 +1016,57 @@ def _set_update_channel(channel: str) -> None:
     config.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
 
 
+# ---------------------------------------------------------------------------
+# Metrics — fire-and-forget install/usage events
+# ---------------------------------------------------------------------------
+
+_METRICS_ENDPOINT = "https://substrate-metrics.substrate-registry.workers.dev/events"
+
+
+def _fire_metrics_event(event_type: str, machine_id: str, **kwargs) -> None:
+    """Send a metrics event. Silent failure — never raises, never blocks."""
+    try:
+        import json as _json
+        import urllib.request as _ur
+        payload = _json.dumps({
+            "event_type": event_type,
+            "machine_id": machine_id,
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }).encode("utf-8")
+        req = _ur.Request(
+            _METRICS_ENDPOINT,
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "substrate"},
+            method="POST",
+        )
+        _ur.urlopen(req, timeout=3)
+    except Exception:
+        pass
+
+
+def _ensure_machine_id() -> tuple[str, bool]:
+    """Return (machine_id, is_new). is_new=True if we just generated it for the first time."""
+    config = _substrate_config_path()
+    existing_id = None
+    data = {}
+    if config.exists():
+        try:
+            import yaml as _yaml
+            data = _yaml.safe_load(config.read_text()) or {}
+            existing_id = data.get("machine_id")
+        except Exception:
+            pass
+    if existing_id:
+        return existing_id, False
+    import uuid as _uuid
+    new_id = str(_uuid.uuid4())
+    data["machine_id"] = new_id
+    config.parent.mkdir(parents=True, exist_ok=True)
+    import yaml as _yaml
+    config.write_text(_yaml.dump(data, default_flow_style=False, sort_keys=False))
+    return new_id, True
+
+
 def _is_substrate_instance(path: Path) -> bool:
     return (path / "CLAUDE.md").exists() and (path / "entities").exists()
 
@@ -1441,6 +1492,8 @@ def cmd_init(rest: list[str]) -> None:
         # Pin the engine path explicitly so this workspace always uses the installed engine,
         # even if SUBSTRATE_ENGINE_PATH is set globally (e.g. to a dev checkout).
         installed_engine = Path("~/.substrate/engine").expanduser()
+        import uuid as _uuid
+        _workspace_id = str(_uuid.uuid4())
         overlay.write_text(textwrap.dedent(f"""\
             # Substrate workspace overlay
             # Custom types, attributes, and relationships live in _system/schema-user/
@@ -1449,6 +1502,9 @@ def cmd_init(rest: list[str]) -> None:
             # Engine path — pinned at init to the installed engine.
             # Override if you want this workspace to use a different engine checkout.
             engine: {installed_engine}
+
+            # Unique identifier for this workspace (used for metrics).
+            workspace_id: {_workspace_id}
 
             # Rename schema elements for display and CLI input in this workspace.
             # Use: substrate schema alias type|attribute|relationship CANONICAL ALIAS
@@ -1512,6 +1568,19 @@ def cmd_init(rest: list[str]) -> None:
         print(f"Instance refreshed at {target}")
     else:
         print(f"Instance created at {target}")
+        try:
+            import yaml as _yaml
+            _machine_id, _is_new_machine = _ensure_machine_id()
+            _ws_data = _yaml.safe_load(overlay.read_text()) or {}
+            _workspace_id = _ws_data.get("workspace_id")
+            _version = (ep / "VERSION").read_text().strip() if (ep / "VERSION").exists() else None
+            _platform = {"darwin": "darwin", "linux": "linux", "win32": "win32"}.get(sys.platform, sys.platform)
+            if _is_new_machine:
+                _fire_metrics_event("machine_install", _machine_id, version=_version, platform=_platform)
+            _fire_metrics_event("workspace_init", _machine_id,
+                                workspace_id=_workspace_id, version=_version, platform=_platform)
+        except Exception:
+            pass
 
     if not args.no_services:
         print("\nInstalling background services...")
@@ -1896,6 +1965,8 @@ def cmd_update(_rest: list[str]) -> None:
         print(f"  To update manually: git -C <engine-path> pull origin {channel}")
         sys.exit(1)
 
+    _from_version = (ep / "VERSION").read_text().strip() if (ep / "VERSION").exists() else None
+
     result = subprocess.run(
         ["git", "-C", str(ep), "pull", "--ff-only", "origin", channel],
         capture_output=True, text=True,
@@ -1908,6 +1979,16 @@ def cmd_update(_rest: list[str]) -> None:
         print(f"  ✓ Engine already up to date ({channel})")
     else:
         print(f"  ✓ Engine updated ({channel})")
+
+    if "Already up to date" not in result.stdout:
+        try:
+            _to_version = (ep / "VERSION").read_text().strip() if (ep / "VERSION").exists() else None
+            if _from_version and _to_version and _from_version != _to_version:
+                _machine_id, _ = _ensure_machine_id()
+                _platform = {"darwin": "darwin", "linux": "linux", "win32": "win32"}.get(sys.platform, sys.platform)
+                _fire_metrics_event("update", _machine_id, version=_to_version, platform=_platform)
+        except Exception:
+            pass
 
     # --- Run pending migrations ---
     run_mig = ep / "_system" / "scripts" / "run-migrations.py"
