@@ -300,6 +300,31 @@ def check_claude_cli() -> tuple[bool | None, str]:
         return None, str(e)
 
 
+def check_pending_migrations() -> list[str]:
+    """Return names of migration scripts not yet applied to this workspace."""
+    try:
+        ep = _engine_path()
+        migrations_dir = ep / "_system" / "migrations"
+        if not migrations_dir.exists():
+            return []
+
+        applied_log = Path(SUBSTRATE_PATH) / "_system" / "migrations-applied.json"
+        applied: set[str] = set()
+        if applied_log.exists():
+            import json as _json
+            data = _json.loads(applied_log.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                applied = set(data)
+
+        pending = sorted(
+            p.name for p in migrations_dir.glob("*.py")
+            if p.stem[0].isdigit() and p.name not in applied
+        )
+        return pending
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Output
 # ---------------------------------------------------------------------------
@@ -307,6 +332,7 @@ def check_claude_cli() -> tuple[bool | None, str]:
 def _write_pending(
     substrate_detail: str | None,
     substrate_notes: str | None,
+    pending_migrations: list[str],
     sdk_detail: str | None,
     sdk_changelog: str | None,
     cli_detail: str | None,
@@ -327,6 +353,13 @@ def _write_pending(
             f"New version available: {substrate_detail}\n\n"
             "```\nsubstrate update\n```\n\n"
         )
+        if pending_migrations:
+            count = len(pending_migrations)
+            noun = "migration" if count == 1 else "migrations"
+            lines.append(
+                f"**Note:** This update includes {count} workspace {noun} that will run automatically.\n"
+                f"Ask the agent what changed before approving if you'd like details.\n\n"
+            )
         if substrate_notes:
             lines.append(f"### What's new\n\n{substrate_notes}\n\n")
 
@@ -359,10 +392,15 @@ def main():
     has_updates = substrate_available or sdk_available or cli_available
     any_failed = substrate_available is None or sdk_available is None or cli_available is None
 
+    pending_migrations = check_pending_migrations() if substrate_available else []
+    if pending_migrations:
+        _log(f"  migrations pending: {', '.join(pending_migrations)}")
+
     if has_updates:
         _write_pending(
             substrate_detail=substrate_detail if substrate_available else None,
             substrate_notes=substrate_notes if substrate_available else None,
+            pending_migrations=pending_migrations,
             sdk_detail=sdk_detail if sdk_available else None,
             sdk_changelog=sdk_changelog if sdk_available else None,
             cli_detail=cli_detail if cli_available else None,

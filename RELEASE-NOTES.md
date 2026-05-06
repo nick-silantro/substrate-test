@@ -1,5 +1,12 @@
 # Substrate Release Notes
 
+## 0.1.7
+
+**Migration transparency**
+
+- Pending update notices now warn you when an update includes workspace migrations, so you know before you say yes.
+- Agents are now instructed to surface migration output explicitly after running `substrate update` — you'll be told what ran and what it did, not just "update complete."
+
 ## 0.1.6
 
 **Workspace migration: engine path pinning**

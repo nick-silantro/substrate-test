@@ -158,7 +158,7 @@ If only one type is pending, run it directly:
 
 If both types are pending, do not assume the user wants both. Ask first: "There are updates for both the Anthropic stack and the Substrate engine — update both, or just one?" Then run whichever they choose.
 
-Confirm what ran and whether it succeeded.
+Confirm what ran and whether it succeeded. If `substrate update` output includes migration lines (e.g. `Running 1 migration(s)...`), surface them explicitly — tell the user which migrations ran and what they did. Do not let migration output pass silently.
 
 ---
 
