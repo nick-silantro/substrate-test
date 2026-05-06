@@ -1,3 +1,7 @@
+<!-- ENGINE-MANAGED: This file is maintained by Substrate and will be overwritten
+     on updates. To customize how agents behave in this workspace, talk to your
+     agent — it will make the changes for you. -->
+
 # Substrate
 
 Run this at the start of every session to load your operational orientation:

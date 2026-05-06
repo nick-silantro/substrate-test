@@ -1,5 +1,12 @@
 # Substrate Release Notes
 
+## 0.1.5
+
+**Housekeeping**
+
+- `CLAUDE.md` now includes a header making clear it is engine-managed and will be overwritten on updates. To change how agents behave in your workspace, talk to your agent.
+- Skills folder now includes a `README.md` explaining that skills are engine-provided and updated automatically with `substrate update`.
+
 ## 0.1.4
 
 **Update detection improvements**
