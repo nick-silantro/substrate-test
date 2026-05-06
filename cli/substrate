@@ -1478,6 +1478,81 @@ def cmd_init(rest: list[str]) -> None:
             applied_log.parent.mkdir(parents=True, exist_ok=True)
             applied_log.write_text(_json.dumps(applied, indent=2), encoding="utf-8")
 
+    # Create first-session orientation context-doc for new workspaces.
+    # Loaded by L0 on the first real session; agent orients the user and deletes it.
+    if not args.reinit:
+        import uuid as _uuid, json as _json
+        from datetime import datetime, timezone
+        _fso_id = str(_uuid.uuid4())
+        _fso_dir = target / "entities" / "context-doc" / _fso_id[:2] / _fso_id[2:4] / _fso_id
+        _fso_dir.mkdir(parents=True, exist_ok=True)
+        _now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+        import yaml as _yaml
+        _fso_meta = {
+            "id": _fso_id,
+            "type": "context-doc",
+            "name": "first-session-orientation",
+            "description": "First-session instructions for the agent. Deleted after orientation is complete.",
+            "meta_status": "live",
+            "health": "undefined",
+            "context_audience": '["all"]',
+            "startup_for": '["all"]',
+            "created": _now,
+            "last_edited": _now,
+        }
+        (_fso_dir / "meta.yaml").write_text(
+            _yaml.dump(_fso_meta, default_flow_style=False, sort_keys=False, allow_unicode=True),
+            encoding="utf-8",
+        )
+        _fso_content = f"""\
+# FIRST-SESSION ORIENTATION
+
+_Instructions for you, not content to show the user. Follow them, then delete this entity._
+
+This is a new Substrate workspace. Your task for this first session:
+
+## Step 1 — Check if onboarding ran
+
+Look for context documents named `user-*`, `narrative`, and `bulletin-board` in the context stack.
+
+**If they exist:** onboarding ran during install. The user has a profile, a narrative, and a bulletin board already set up. Skip to Step 2.
+
+**If they are missing:** onboarding didn't run. Before orienting the user, conduct a brief onboarding conversation:
+- What should agents call them? What's their full name?
+- What's currently getting lost — decisions, context, threads they wish they could find?
+- What are they actually working on right now?
+- When something technical comes up, do they want to be walked through it or just get the summary?
+- Do they want an AI that connects dots proactively, or one that stays in its lane?
+
+Then write the answers to `_system/onboarding-input.json` (use the schema from `substrate context agent-orientation`) and run:
+
+```bash
+cd {target} && substrate onboard --from _system/onboarding-input.json
+```
+
+## Step 2 — Orient the user
+
+Tell them what's in their workspace:
+- A profile — who they are and how they like to work
+- A narrative — the workspace's running state
+- A bulletin board — open threads and things to pick up
+
+Explain Substrate in two sentences: it's a personal knowledge graph where everything is an entity — notes, tasks, projects, decisions, people — connected, queryable, and built up through use.
+
+Ask what they want to start with. Then follow their lead.
+
+## Step 3 — Clean up
+
+When orientation is complete, delete this entity:
+
+```bash
+substrate entity delete {_fso_id}
+```
+
+This removes these instructions permanently.
+"""
+        (_fso_dir / "FIRST-SESSION.md").write_text(_fso_content, encoding="utf-8")
+
     if args.reinit:
         print(f"Instance refreshed at {target}")
     else:
