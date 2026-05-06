@@ -286,6 +286,7 @@ def main():
     _log(f"  claude-cli: {cli_detail}")
 
     has_updates = substrate_available or sdk_available or cli_available
+    any_failed = substrate_available is None or sdk_available is None or cli_available is None
 
     if has_updates:
         _write_pending(
@@ -295,6 +296,10 @@ def main():
             cli_detail=cli_detail if cli_available else None,
         )
         _log("pending-updates.md written")
+    elif any_failed:
+        # One or more checks failed — leave existing file in place rather than
+        # clearing it, since we don't have a definitive "all up to date" signal.
+        _log("some checks failed — leaving pending-updates.md unchanged")
     else:
         if PENDING_FILE.exists():
             PENDING_FILE.unlink()
