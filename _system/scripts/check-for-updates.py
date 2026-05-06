@@ -35,10 +35,10 @@ SNOOZE_FILE = Path(SUBSTRATE_PATH) / "_system" / "update-snooze.yaml"
 
 
 def _engine_path():
-    """Resolve the engine installation path."""
-    env = os.environ.get("SUBSTRATE_ENGINE_PATH")
-    if env:
-        return Path(env).expanduser()
+    """Resolve the engine installation path.
+
+    Priority: overlay.yaml (workspace-specific) > SUBSTRATE_ENGINE_PATH (global) > default.
+    """
     overlay = Path(SUBSTRATE_PATH) / "_system" / "overlay.yaml"
     if overlay.exists():
         import yaml
@@ -47,6 +47,9 @@ def _engine_path():
         ep = data.get("engine")
         if ep:
             return Path(ep).expanduser()
+    env = os.environ.get("SUBSTRATE_ENGINE_PATH")
+    if env:
+        return Path(env).expanduser()
     return Path("~/.substrate/engine").expanduser()
 
 

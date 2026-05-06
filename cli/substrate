@@ -273,15 +273,15 @@ def instance_path() -> Path:
 
 
 def engine_path(workspace: Path | None = None) -> Path:
-    # 1. Explicit env var
-    ep = os.environ.get("SUBSTRATE_ENGINE_PATH")
-    if ep:
-        return Path(ep).expanduser().resolve()
-    # 2. Workspace overlay.yaml
+    # 1. Workspace overlay.yaml — workspace-specific config wins over global env var.
     ws = workspace if workspace is not None else instance_path()
     overlay_engine = _engine_from_overlay(ws)
     if overlay_engine:
         return overlay_engine
+    # 2. Explicit env var — global override for workspaces without an overlay engine key.
+    ep = os.environ.get("SUBSTRATE_ENGINE_PATH")
+    if ep:
+        return Path(ep).expanduser().resolve()
     # 3. Default installed engine
     pulled = Path("~/.substrate/engine").expanduser()
     if pulled.exists():
@@ -1438,17 +1438,24 @@ def cmd_init(rest: list[str]) -> None:
     # Write overlay.yaml inside _system/ (only if it doesn't exist — don't clobber customizations)
     overlay = target / "_system" / "overlay.yaml"
     if not overlay.exists():
-        overlay.write_text(textwrap.dedent("""\
+        # Pin the engine path explicitly so this workspace always uses the installed engine,
+        # even if SUBSTRATE_ENGINE_PATH is set globally (e.g. to a dev checkout).
+        installed_engine = Path("~/.substrate/engine").expanduser()
+        overlay.write_text(textwrap.dedent(f"""\
             # Substrate workspace overlay
             # Custom types, attributes, and relationships live in _system/schema-user/
             # Use: substrate schema add type/attribute/relationship/grouping
 
+            # Engine path — pinned at init to the installed engine.
+            # Override if you want this workspace to use a different engine checkout.
+            engine: {installed_engine}
+
             # Rename schema elements for display and CLI input in this workspace.
             # Use: substrate schema alias type|attribute|relationship CANONICAL ALIAS
             aliases:
-              types: {}
-              attributes: {}
-              relationships: {}
+              types: {{}}
+              attributes: {{}}
+              relationships: {{}}
 
             # Suppress schema elements from listings and pickers.
             # Use: substrate schema hide type|attribute|relationship NAME
