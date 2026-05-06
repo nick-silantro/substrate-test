@@ -1,5 +1,11 @@
 # Substrate Release Notes
 
+## 0.1.10
+
+**Cleaner first-session experience**
+
+- Agents no longer surface raw CLI syntax to users. Substrate commands run behind the scenes; you speak in intentions and the agent handles the rest.
+
 ## 0.1.9
 
 **Semantic search always on**

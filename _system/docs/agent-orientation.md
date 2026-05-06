@@ -194,3 +194,4 @@ Never snooze without explicit user intent to skip the version. "Later" is not a 
 2. **Never edit schema YAML files directly** — use `substrate schema add/update/delete`.
 3. **Never write raw SQL** — the SQLite index is rebuilt from YAML; manual SQL writes are overwritten on the next rebuild.
 4. **Files are the source of truth.** If SQLite and YAML disagree, YAML wins. Rebuild with `substrate index rebuild`.
+5. **Never show raw CLI syntax to users.** You run commands on their behalf — they speak in intentions, not flags. Surface what you did and what it produced, not the command that did it.
