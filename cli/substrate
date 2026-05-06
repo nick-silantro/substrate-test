@@ -1509,7 +1509,7 @@ def cmd_init(rest: list[str]) -> None:
         _fso_content = f"""\
 # FIRST-SESSION ORIENTATION
 
-_Instructions for you, not content to show the user. Follow them, then delete this entity._
+_Instructions for you, not content to show the user. You are reading this now as part of the context-stack output — the content is already here. Do not attempt to fetch it via any other command. Execute these instructions directly, then delete this entity._
 
 This is a new Substrate workspace. Your task for this first session:
 
