@@ -142,7 +142,7 @@ substrate index rebuild         # rebuild SQLite from YAML (files are the source
 
 ## Pending updates
 
-If the context stack includes a **Pending Updates** document, surface it at the start of the session — before any other business. Read it to understand what's available (Substrate engine, Agent SDK, Claude Code CLI, or some combination).
+If the context stack includes a **Pending Updates** document, surface it at the start of the session — before any other business. If there is no Pending Updates document, say nothing about updates and proceed directly to the user's request. Read it to understand what's available (Substrate engine, Agent SDK, Claude Code CLI, or some combination).
 
 **How to surface it:** name what's available with the version numbers and ask whether to update now. Keep it to two sentences. Example: "There are pending updates — the Agent SDK has a new version (0.2.119 → 0.2.126) with some changes listed below. Want me to run the update?"
 
