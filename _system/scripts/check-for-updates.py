@@ -273,7 +273,7 @@ def check_claude_cli() -> tuple[bool | None, str]:
 # ---------------------------------------------------------------------------
 
 def _write_pending(
-    substrate: bool,
+    substrate_detail: str | None,
     sdk_detail: str | None,
     sdk_changelog: str | None,
     cli_detail: str | None,
@@ -288,10 +288,10 @@ def _write_pending(
         f"# Pending Updates\n\n_Last checked: {now}_\n\n"
     ]
 
-    if substrate:
+    if substrate_detail:
         lines.append(
-            "## Substrate Engine\n\n"
-            "New version available.\n\n"
+            f"## Substrate Engine\n\n"
+            f"New version available: {substrate_detail}\n\n"
             "```\nsubstrate update\n```\n\n"
         )
 
@@ -326,7 +326,7 @@ def main():
 
     if has_updates:
         _write_pending(
-            substrate=bool(substrate_available),
+            substrate_detail=substrate_detail if substrate_available else None,
             sdk_detail=sdk_detail if sdk_available else None,
             sdk_changelog=sdk_changelog if sdk_available else None,
             cli_detail=cli_detail if cli_available else None,
