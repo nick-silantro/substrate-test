@@ -27,7 +27,6 @@ Check these before running the installer:
 - **Claude Code** — run `claude --version`. If missing, send them to https://claude.ai/code and wait.
 - **Python 3.9+** — run `python3 --version` (Mac/Linux) or `python --version` (Windows).
 - **Git** — run `git --version`.
-- **Anthropic SDK** — run `python3 -c "import anthropic; print(anthropic.__version__)"`. If it errors or is missing: `pip3 install anthropic`.
 
 ---
 
@@ -75,9 +74,10 @@ You just installed a knowledge graph. Now help the person fill it in.
 Shift your posture: you're no longer running an installer — you're a knowledgeable friend getting oriented before you start helping. Keep it conversational. Don't explain what Substrate is again. Just ask, listen, and remember — you'll use what they tell you at the end.
 
 **Tone and pacing rules for this section:**
-- Frame the questions before starting: "I'm going to ask you four quick questions. Your answers get saved to your workspace — they help every future agent know who you are and how you work, so you don't have to explain yourself each session. This takes about two minutes."
+- Frame the topics before starting: "I'm going to cover four topics with you. Your answers get saved to your workspace — they help every future agent know who you are and how you work, so you don't have to explain yourself each session. This takes about two minutes."
+- Number each topic visibly when you introduce it: "Topic 1 of 4:", "Topic 2 of 4:", etc. This way follow-up questions feel like part of the topic, not additional topics, and people have a clear sense of progress.
 - After each answer: one brief acknowledgment (one sentence max), then the next question. No extended reactions, no drawing connections, no summaries.
-- Use a bridging sentence before each new question rather than jumping directly. A simple "Got it." followed by the next question is enough.
+- Use a bridging sentence before each new topic rather than jumping directly. A simple "Got it." followed by the next question is enough.
 
 ### Get their name
 
@@ -95,7 +95,7 @@ Do not say "Good to meet you" or anything that implies this is a first introduct
 
 > "What's the thing that currently gets lost — decisions you made, context you built up, threads you were tracking? What do you wish you could just find?"
 
-Start here. Their answer reveals what kinds of things belong in this workspace — which lets you create the right example entities at the end without asking a separate question.
+Start here. Their answer reveals their pain point and shapes the narrative and bulletin board.
 
 Follow-up if they name a specific domain or project: "Tell me more — what does the mess look like?"
 Follow-up if they say "everything": "What's the one that costs you the most when you lose it?"
@@ -144,18 +144,9 @@ Write the following to `{workspace_path}/_system/onboarding-input.json`, replaci
   },
   "bulletin_board": {
     "seed": "An agent-facing note, not a user-facing message. One short paragraph: who they are, what they are building, their pain point, the key thing to help with. If they mentioned a near-term goal or deadline, end with it."
-  },
-  "entities": [
-    {
-      "type": "project",
-      "name": "The main thing they mentioned",
-      "description": "One sentence, in their own words if possible."
-    }
-  ]
+  }
 }
 ```
-
-1–2 entities is the right number. Let them emerge from Q1 and Q2 — don't ask a separate question about what to create.
 
 Then run:
 
@@ -167,9 +158,9 @@ After it completes, tell the user:
 
 > "Your workspace is ready. Here's what just landed there: your profile (who you are, how you like to work), a context document that future agents read at the start of every session, and a couple of starter entities based on what you told me.
 >
-> Open [workspace_path] in Claude Code to get started. From your first session, your assistant will already know who you are."
+> To get started: open Claude Code, start a new session, and open [workspace_path] as your project. From your first session, your assistant will already know who you are."
 
-Use the workspace path that was printed during install.
+Use the workspace path that was printed during install. Do not give terminal commands — just tell them to open Claude Code and point it at the folder.
 
 ---
 

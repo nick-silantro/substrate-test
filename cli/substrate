@@ -1466,6 +1466,18 @@ def cmd_init(rest: list[str]) -> None:
     if s.exists():
         subprocess.run(["python3", str(s)], env=env, check=False)
 
+    # Stamp the migration log — mark all current migrations as already applied.
+    # Fresh installs don't need to run migrations; this ensures the updater only
+    # runs migrations released AFTER this workspace was created.
+    if not args.reinit:
+        import json as _json
+        migrations_dir = ep / "_system" / "migrations"
+        applied_log = target / "_system" / "migrations-applied.json"
+        if migrations_dir.exists() and not applied_log.exists():
+            applied = sorted(p.name for p in migrations_dir.glob("*.py") if p.stem[0].isdigit())
+            applied_log.parent.mkdir(parents=True, exist_ok=True)
+            applied_log.write_text(_json.dumps(applied, indent=2), encoding="utf-8")
+
     if args.reinit:
         print(f"Instance refreshed at {target}")
     else:
@@ -1843,6 +1855,15 @@ def cmd_update(_rest: list[str]) -> None:
         print(f"  ✓ Engine already up to date ({channel})")
     else:
         print(f"  ✓ Engine updated ({channel})")
+
+    # --- Run pending migrations ---
+    run_mig = ep / "_system" / "scripts" / "run-migrations.py"
+    if run_mig.exists() and ip.exists():
+        mig_env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
+        mig_result = subprocess.run([sys.executable, str(run_mig)], env=mig_env)
+        if mig_result.returncode != 0:
+            print("  ✗ Migration failed — update incomplete.", file=sys.stderr)
+            sys.exit(1)
 
     # --- Link skills from (now-updated) engine to instance ---
     if ip.exists():
