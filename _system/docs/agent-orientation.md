@@ -140,12 +140,6 @@ substrate validate schema       # schema consistency only
 substrate index rebuild         # rebuild SQLite from YAML (files are the source of truth)
 ```
 
-## First-session orientation
-
-If the context stack includes a document named **first-session-orientation**, its instructions take priority over everything else. Follow them before responding to the user, before surfacing updates, before anything. The document tells you exactly what to do — read it and execute it. Do not summarize the agent-orientation doc or wait for the user to prompt you further.
-
----
-
 ## Pending updates
 
 If the context stack includes a **Pending Updates** document, surface it at the start of the session — before any other business. Read it to understand what's available (Substrate engine, Agent SDK, Claude Code CLI, or some combination).
