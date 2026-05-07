@@ -49,25 +49,38 @@ def _die(msg: str)  -> None: print(f"  \033[31m✗\033[0m {msg}", file=sys.stder
 def _is_inside_claude_code() -> bool:
     """Walk the process tree looking for a Claude Code parent process."""
     try:
-        pid = os.getpid()
-        for _ in range(15):
-            if sys.platform == "win32":
-                r = subprocess.run(
-                    ["powershell", "-NoProfile", "-Command",
-                     f"$p=Get-Process -Id {pid} -EA SilentlyContinue;"
-                     f"if($p){{\"$($p.Name)|$(if($p.Parent){{$p.Parent.Id}}else{{0}})\"}}"],
-                    capture_output=True, text=True, timeout=3,
-                )
-                if not r.stdout.strip():
+        if sys.platform == "win32":
+            # Single PowerShell call to get all processes — avoids per-process
+            # startup overhead of iterative calls.
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-Process | ForEach-Object {"
+                 "  $ppid = if ($_.Parent) { $_.Parent.Id } else { 0 };"
+                 "  \"$($_.Id)|$ppid|$($_.Name)\""
+                 "}"],
+                capture_output=True, text=True, timeout=10,
+            )
+            procs = {}
+            for line in r.stdout.splitlines():
+                parts = line.strip().split("|", 2)
+                if len(parts) == 3:
+                    pid_s, ppid_s, name = parts
+                    if pid_s.isdigit() and ppid_s.isdigit():
+                        procs[int(pid_s)] = (int(ppid_s), name)
+            pid = os.getpid()
+            for _ in range(15):
+                if pid not in procs:
                     break
-                parts = r.stdout.strip().split("|", 1)
-                if len(parts) < 2:
-                    break
-                name, ppid_str = parts
+                ppid, name = procs[pid]
                 if "claude" in name.lower():
                     return True
-                ppid = int(ppid_str.strip()) if ppid_str.strip().isdigit() else 0
-            else:
+                if ppid in (0, 1, pid):
+                    break
+                pid = ppid
+        else:
+            # Unix: one ps call per level — fast since ps is a thin syscall.
+            pid = os.getpid()
+            for _ in range(15):
                 r = subprocess.run(
                     ["ps", "-p", str(pid), "-o", "ppid=,comm="],
                     capture_output=True, text=True, timeout=3,
@@ -79,9 +92,9 @@ def _is_inside_claude_code() -> bool:
                 if "claude" in name.lower():
                     return True
                 ppid = int(ppid_str.strip()) if ppid_str.strip().lstrip("-").isdigit() else 0
-            if ppid in (0, 1, pid):
-                break
-            pid = ppid
+                if ppid in (0, 1, pid):
+                    break
+                pid = ppid
     except Exception:
         pass
     return False
