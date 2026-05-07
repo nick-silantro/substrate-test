@@ -1,5 +1,13 @@
 # Substrate Release Notes
 
+## 0.1.14-0
+
+**Update check reliability on Windows**
+
+- Fixed: the Claude Code CLI version check was always erroring on Windows because npm-installed tools (`claude`, `npm`) ship as `.cmd` files that Python subprocess can't find without shell resolution. The check now correctly resolves them on Windows.
+- Fixed: if the Claude Code CLI isn't installed, the update checker now records "not installed" and continues cleanly rather than treating it as a check failure.
+- Fixed: "Last checked" timestamp in the pending updates notice now always reflects the actual last check time, even when one of the checks encountered an error. Previously, any failed check would leave the entire file — including the timestamp — frozen in place.
+
 ## 0.1.13-3
 
 **Release notes and service update discipline**

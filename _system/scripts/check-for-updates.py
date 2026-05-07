@@ -279,7 +279,8 @@ def check_agent_sdk() -> tuple[bool | None, str, str]:
 
         npm_result = subprocess.run(
             ["npm", "view", "@anthropic-ai/claude-agent-sdk", "version"],
-            capture_output=True, text=True, timeout=20
+            capture_output=True, text=True, timeout=20,
+            shell=(sys.platform == "win32"),
         )
         if npm_result.returncode != 0:
             return None, "npm check failed", ""
@@ -334,20 +335,25 @@ def _fetch_sdk_changelog(current: str, latest: str) -> str:
 def check_claude_cli() -> tuple[bool | None, str]:
     """Check if a newer Claude Code CLI is available via npm."""
     try:
+        _win = sys.platform == "win32"
         result = subprocess.run(
             ["claude", "--version"],
-            capture_output=True, text=True, timeout=10
+            capture_output=True, text=True, timeout=10,
+            shell=_win,
         )
+        if result.returncode != 0 and not result.stdout.strip() and not result.stderr.strip():
+            return False, "not installed"
         raw = (result.stdout.strip() or result.stderr.strip()).split("\n")[0]
         # Parse version from formats like "1.2.3" or "claude/1.2.3" or "Claude Code 1.2.3"
         parts = raw.replace("/", " ").split()
         current = next((p for p in parts if p[0].isdigit()), None)
         if not current:
-            return None, f"could not parse version from: {raw!r}"
+            return False, "not installed"
 
         npm_result = subprocess.run(
             ["npm", "view", "@anthropic-ai/claude-code", "version"],
-            capture_output=True, text=True, timeout=20
+            capture_output=True, text=True, timeout=20,
+            shell=_win,
         )
         if npm_result.returncode != 0:
             return None, "npm check failed"
@@ -361,6 +367,8 @@ def check_claude_cli() -> tuple[bool | None, str]:
             return False, f"snoozed ({latest})"
 
         return True, f"{current} → {latest}"
+    except FileNotFoundError:
+        return False, "not installed"
     except Exception as e:
         return None, str(e)
 
@@ -472,9 +480,15 @@ def main():
         )
         _log("pending-updates.md written")
     elif any_failed:
-        # One or more checks failed — leave existing file in place rather than
-        # clearing it, since we don't have a definitive "all up to date" signal.
-        _log("some checks failed — leaving pending-updates.md unchanged")
+        # One or more checks failed — preserve existing update content but refresh
+        # the timestamp so "Last checked" stays current.
+        if PENDING_FILE.exists():
+            import re as _re
+            now = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z")
+            content = PENDING_FILE.read_text(encoding="utf-8")
+            content = _re.sub(r"_Last checked: [^_]*_", f"_Last checked: {now}_", content)
+            PENDING_FILE.write_text(content, encoding="utf-8")
+        _log("some checks failed — preserved pending-updates.md, refreshed timestamp")
     else:
         if PENDING_FILE.exists():
             PENDING_FILE.unlink()
