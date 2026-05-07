@@ -1474,16 +1474,24 @@ def _link_skills(engine_skills: Path, instance_skills: Path) -> None:
     """
     if not engine_skills.exists():
         return
-    if instance_skills.is_symlink():
-        if instance_skills.resolve() == engine_skills.resolve():
-            return  # already correct
+
+    # Bail out early if the path already resolves to the right target —
+    # regardless of whether it's a symlink, junction, or something else.
+    if instance_skills.exists() or instance_skills.is_symlink():
+        try:
+            if instance_skills.resolve() == engine_skills.resolve():
+                return
+        except OSError:
+            pass
+        # Wrong target — remove whatever is there.
         if sys.platform == "win32" and instance_skills.is_dir():
-            os.rmdir(instance_skills)  # junctions must use rmdir, not unlink
-        else:
+            os.rmdir(instance_skills)  # junctions (and only junctions) are dirs + symlinks; rmdir removes without following
+        elif instance_skills.is_symlink():
             instance_skills.unlink()
-    elif instance_skills.exists():
-        import shutil as _sh
-        _sh.rmtree(instance_skills)
+        else:
+            import shutil as _sh
+            _sh.rmtree(instance_skills)
+
     instance_skills.parent.mkdir(parents=True, exist_ok=True)
     if sys.platform == "win32":
         subprocess.run(
