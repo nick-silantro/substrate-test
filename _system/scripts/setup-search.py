@@ -19,6 +19,7 @@ import venv
 SUBSTRATE_PATH = os.environ.get("SUBSTRATE_PATH", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 VENV_PATH = os.path.join(SUBSTRATE_PATH, "_system", "venv")
 MODEL_CACHE_PATH = os.path.join(os.path.expanduser("~"), ".substrate", "model-cache")
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Platform-aware venv paths: Windows uses Scripts/ and python.exe, Unix uses bin/ and python3
 if sys.platform == "win32":
@@ -116,19 +117,21 @@ def download_model():
     """Pre-download the ONNX embedding model so first search isn't slow."""
     if not _search_available:
         return
-    print("  Downloading ONNX embedding model (Qdrant/bge-small-en-v1.5-onnx-Q)...")
+    print("  Downloading ONNX embedding model...")
     print("  This may take a minute on first run (~50MB download).")
     # Pass cache path via env var — embedding Windows paths directly in a -c string
     # causes SyntaxError because backslashes are parsed as unicode escapes (\U...).
     result = subprocess.run(
         [VENV_PYTHON, "-c", """
-import os, numpy as np, onnxruntime as ort
+import os, sys, numpy as np, onnxruntime as ort
 from tokenizers import Tokenizer
 from huggingface_hub import hf_hub_download
 
+sys.path.insert(0, os.environ["SUBSTRATE_SCRIPTS_DIR"])
+from embeddings import _HF_ONNX_REPO as HF_REPO
+
 cache_dir = os.environ["SUBSTRATE_MODEL_CACHE"]
 os.makedirs(cache_dir, exist_ok=True)
-HF_REPO = "Qdrant/bge-small-en-v1.5-onnx-Q"
 local_dir = os.path.join(cache_dir, HF_REPO.replace("/", "--"))
 os.makedirs(local_dir, exist_ok=True)
 
@@ -160,7 +163,7 @@ print(f"OK dim={emb.shape[1]}")
 """],
         capture_output=True, text=True,
         timeout=300,  # 5 minute timeout for model download
-        env={**os.environ, "SUBSTRATE_MODEL_CACHE": MODEL_CACHE_PATH},
+        env={**os.environ, "SUBSTRATE_MODEL_CACHE": MODEL_CACHE_PATH, "SUBSTRATE_SCRIPTS_DIR": SCRIPTS_DIR},
     )
     if result.returncode != 0:
         print("  ERROR: Model download/test failed.")
