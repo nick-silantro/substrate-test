@@ -91,7 +91,7 @@ Types are grouped by nature. **Work** types have a pipeline (life_stage, resolut
 **Artifacts:** `article`, `script`, `product`
 **Logs:** `correspondence`
 
-Run `substrate query stats` for a count of what's in your workspace.
+`substrate query stats` shows a count of what's in your workspace.
 
 ## Status dimensions for work entities
 

@@ -152,12 +152,21 @@ def _venv_pip() -> Path | None:
 # Individual checks
 # ---------------------------------------------------------------------------
 
-def _parse_version(s: str) -> tuple[int, ...]:
-    """Parse '0.1.0' into (0, 1, 0). Returns (0, 0, 0) on failure."""
+def _parse_version(s: str) -> tuple:
+    """Parse a version string into a sortable tuple.
+
+    Handles clean releases ('0.1.0') and pre-release builds ('0.1.0-2').
+    Pre-release builds sort before the clean release of the same base version:
+      0.1.0-0 < 0.1.0-1 < 0.1.0 < 0.1.1-0
+    """
     try:
-        return tuple(int(x) for x in s.strip().split("."))
+        s = s.strip()
+        if "-" in s:
+            base, pre = s.rsplit("-", 1)
+            return tuple(int(x) for x in base.split(".")) + (int(pre),)
+        return tuple(int(x) for x in s.split(".")) + (float("inf"),)
     except (ValueError, AttributeError):
-        return (0, 0, 0)
+        return (0, 0, 0, 0)
 
 
 def _fetch_substrate_release_notes(ep: Path, channel: str, local_version: str | None, remote_version: str) -> str:
@@ -171,7 +180,7 @@ def _fetch_substrate_release_notes(ep: Path, channel: str, local_version: str | 
             return ""
 
         content = result.stdout
-        local_v = _parse_version(local_version) if local_version else (0, 0, 0)
+        local_v = _parse_version(local_version) if local_version else (0, 0, 0, 0)
 
         # Extract all version sections newer than local_version, up to and including remote_version.
         import re
