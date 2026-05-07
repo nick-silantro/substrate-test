@@ -252,6 +252,17 @@ def _install_cli_windows(cli_src: Path) -> None:
     # .bat wrapper so `substrate` works in cmd and PowerShell without .py extension
     bat = local_bin / "substrate.bat"
     bat.write_text(f'@echo off\n"{sys.executable}" "{cli_src}" %*\n', encoding="utf-8")
+
+    # Bash shim so `substrate` works in Git Bash (used by Claude Code tool calls).
+    # Bash cannot execute .bat files, so a separate shebang script is required.
+    bash_shim = local_bin / "substrate"
+    bash_shim.write_text(
+        "#!/usr/bin/env python\n"
+        "import subprocess, sys, os\n"
+        "cli = os.path.join(os.path.expanduser('~'), '.substrate', 'engine', 'cli', 'substrate')\n"
+        "sys.exit(subprocess.call([sys.executable, cli] + sys.argv[1:]))\n",
+        encoding="utf-8",
+    )
     _ok(f"CLI wrapper created at {bat}")
 
     # Add to user PATH and set env vars via registry
