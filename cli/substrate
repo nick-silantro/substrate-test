@@ -1629,13 +1629,14 @@ def cmd_init(rest: list[str]) -> None:
         print("\nInstalling background services...")
         _install_services(target, ep, reinstall=args.reinit)
 
-    # Set up semantic search (venv + fastembed + model). Model is cached at
-    # ~/.substrate/model-cache/ so this is only slow on the very first install.
+    # Set up semantic search: create venv + install packages during init,
+    # but skip the model download (50MB+). The model fetches on first search use
+    # so that `substrate init` stays fast and doesn't time out in Claude Code.
     setup_search = ep / "_system" / "scripts" / "setup-search.py"
     if setup_search.exists():
-        print("\nSetting up semantic search...")
+        print("\nSetting up semantic search (model will download on first use)...")
         result = subprocess.run(
-            [sys.executable, str(setup_search)],
+            [sys.executable, str(setup_search), "--skip-model"],
             env={**os.environ, "SUBSTRATE_PATH": str(target), "SUBSTRATE_ENGINE_PATH": str(ep)},
         )
         if result.returncode != 0:
