@@ -43,6 +43,51 @@ def _die(msg: str)  -> None: print(f"  \033[31m✗\033[0m {msg}", file=sys.stder
 
 
 # ---------------------------------------------------------------------------
+# Claude Code detection
+# ---------------------------------------------------------------------------
+
+def _is_inside_claude_code() -> bool:
+    """Walk the process tree looking for a Claude Code parent process."""
+    try:
+        pid = os.getpid()
+        for _ in range(15):
+            if sys.platform == "win32":
+                r = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     f"$p=Get-Process -Id {pid} -EA SilentlyContinue;"
+                     f"if($p){{\"$($p.Name)|$(if($p.Parent){{$p.Parent.Id}}else{{0}})\"}}"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if not r.stdout.strip():
+                    break
+                parts = r.stdout.strip().split("|", 1)
+                if len(parts) < 2:
+                    break
+                name, ppid_str = parts
+                if "claude" in name.lower():
+                    return True
+                ppid = int(ppid_str.strip()) if ppid_str.strip().isdigit() else 0
+            else:
+                r = subprocess.run(
+                    ["ps", "-p", str(pid), "-o", "ppid=,comm="],
+                    capture_output=True, text=True, timeout=3,
+                )
+                parts = r.stdout.strip().split(None, 1)
+                if len(parts) < 2:
+                    break
+                ppid_str, name = parts
+                if "claude" in name.lower():
+                    return True
+                ppid = int(ppid_str.strip()) if ppid_str.strip().lstrip("-").isdigit() else 0
+            if ppid in (0, 1, pid):
+                break
+            pid = ppid
+    except Exception:
+        pass
+    return False
+
+
+# ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
 
@@ -98,12 +143,11 @@ def _check_prerequisites() -> None:
     _ok(f"Git {r.stdout.strip().split()[-1]}")
 
     # Claude Code — required, but only warn so the installer doesn't block
-    if shutil.which("claude"):
+    if shutil.which("claude") or _is_inside_claude_code():
         _ok("Claude Code")
     else:
-        _warn("Claude Code not found. May not be on PATH — this check sometimes")
-        _warn("fails from within an active Claude Code session. If not yet installed:")
-        _warn("https://claude.ai/code")
+        _warn("Claude Code not found on PATH and not detected as a running process.")
+        _warn("If not yet installed: https://claude.ai/code")
 
     print()
 
