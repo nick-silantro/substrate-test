@@ -1477,7 +1477,10 @@ def _link_skills(engine_skills: Path, instance_skills: Path) -> None:
     if instance_skills.is_symlink():
         if instance_skills.resolve() == engine_skills.resolve():
             return  # already correct
-        instance_skills.unlink()
+        if sys.platform == "win32" and instance_skills.is_dir():
+            os.rmdir(instance_skills)  # junctions must use rmdir, not unlink
+        else:
+            instance_skills.unlink()
     elif instance_skills.exists():
         import shutil as _sh
         _sh.rmtree(instance_skills)
