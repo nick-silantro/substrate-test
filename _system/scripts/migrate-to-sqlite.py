@@ -513,7 +513,12 @@ def main():
         print(f"  {row[0]}: {row[1]}")
 
     # Checkpoint and close the temp DB so the WAL is fully flushed before rename.
+    # Must fetchall() to finalize the prepared statement — on Windows, an unfetched
+    # result holds the file open via sqlite3_close_v2() deferred cleanup, causing
+    # os.replace() to fail with PermissionError (Mac/Linux rename() doesn't care).
     c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    c.fetchall()
+    c.close()
     conn.close()
 
     # Remove temp WAL/SHM artifacts from the build process.
@@ -529,24 +534,20 @@ def main():
             os.remove(sidecar)
 
     # Atomic swap: live DB only changes when the full build is on disk.
-    # Windows AV scanners can briefly hold a lock on newly created files —
-    # allow up to 60s on Windows vs 10s on Unix.
     import time as _time
-    _max_attempts = 30 if sys.platform == "win32" else 10
-    _sleep_secs   = 2.0 if sys.platform == "win32" else 1.0
-    for attempt in range(_max_attempts):
+    for attempt in range(10):
         try:
             os.replace(tmp_path, DB_PATH)
             break
         except PermissionError:
-            if attempt == _max_attempts - 1:
+            if attempt == 9:
                 print(
                     "\nError: substrate.db is locked by another process.\n"
                     "Close any other Substrate processes (entity-watcher, Surface, Relay)\n"
                     "and run:  substrate index rebuild"
                 )
                 sys.exit(1)
-            _time.sleep(_sleep_secs)
+            _time.sleep(1.0)
     print(f"\nDatabase written to: {DB_PATH}")
 
 
