@@ -733,7 +733,7 @@ def cmd_unprocessed(args):
 
 
 def cmd_search(args):
-    """Semantic search — find entities by meaning."""
+    """Hybrid search — FTS5 keyword + semantic vector, blended via RRF."""
     if not args:
         print("Usage: query.py search \"query text\" [--type TYPE] [--limit N] [--format json]")
         print("  e.g. query.py search \"things I need to decide on\"")
@@ -773,75 +773,24 @@ def cmd_search(args):
         print("No query text provided.")
         return
 
-    from embeddings import is_search_available, search, load_vec_extension
+    from embeddings import is_search_available, hybrid_search, load_vec_extension
 
-    if not is_search_available():
-        print("Semantic search hasn't been set up yet.")
-        print("This is a one-time setup that takes about a minute (~50MB download).")
-        try:
-            answer = input("Set it up now? (Y/n): ").strip().lower()
-        except EOFError:
-            answer = "y"
-        if answer in ("", "y", "yes"):
-            import subprocess
-            setup_script = os.path.join(SUBSTRATE_PATH, "_system", "scripts", "setup-search.py")
-            result = subprocess.run([sys.executable, setup_script])
-            if result.returncode != 0:
-                print("Setup failed. Check the output above for details.")
-                return
-            # After setup, rebuild embeddings for existing entities
-            print("\nNow embedding your existing entities...")
-            rebuild_script = os.path.join(SUBSTRATE_PATH, "_system", "scripts", "rebuild-embeddings.py")
-            result = subprocess.run([sys.executable, rebuild_script])
-            if result.returncode != 0:
-                print("Embedding failed. Search will work for new entities going forward.")
-                return
-            print()
-            # Re-import after setup (modules need to re-detect the venv)
-            import importlib
-            import embeddings as emb_mod
-            importlib.reload(emb_mod)
-            from embeddings import is_search_available, search, load_vec_extension
-            if not is_search_available():
-                print("Setup completed but search module couldn't load. Try restarting.")
-                return
-        else:
-            print("Skipped. You can set it up later with:")
-            print(f"  python3 _system/scripts/setup-search.py")
-            return
-
-    # For short queries (≤4 words), run a name match alongside semantic search.
-    # If there are exact name hits, surface them first — prevents the silent failure
-    # mode where search returns semantically adjacent noise instead of the obvious match.
-    find_results = []
-    if len(query_text.split()) <= 4:
-        find_conn = get_conn()
-        fc = find_conn.cursor()
-        find_sql = "SELECT id, name, type FROM entities WHERE name LIKE ? AND meta_status = 'live'"
-        find_params = [f"%{query_text}%"]
-        if type_filter:
-            find_sql += " AND type = ?"
-            find_params.append(type_filter)
-        find_sql += " ORDER BY type, name LIMIT 5"
-        fc.execute(find_sql, find_params)
-        find_results = fc.fetchall()
-        find_conn.close()
+    if not is_search_available() and output_format == "human":
+        print("Note: semantic search not set up — showing keyword results only.")
+        print("      Run `substrate search setup` to enable semantic matching.\n")
 
     conn = get_conn()
-    if not load_vec_extension(conn):
-        print("Failed to load sqlite-vec extension.")
-        conn.close()
-        return
+    load_vec_extension(conn)  # loads sqlite-vec if available; no-op otherwise
 
-    results = search(conn, query_text, limit=limit, type_filter=type_filter)
+    results = hybrid_search(conn, query_text, limit=limit, type_filter=type_filter)
     conn.close()
 
-    if not results and not find_results:
+    if not results:
         if output_format == "json":
             import json
-            print(json.dumps({"query": query_text, "type_filter": type_filter, "results": [], "name_matches": []}))
+            print(json.dumps({"query": query_text, "type_filter": type_filter, "results": []}))
         else:
-            print(f"No results for: \"{query_text}\"")
+            print(f'No results for: "{query_text}"')
             if type_filter:
                 print(f"  (filtered to type: {type_filter})")
         return
@@ -851,47 +800,34 @@ def cmd_search(args):
         out = {
             "query": query_text,
             "type_filter": type_filter,
-            "name_matches": [{"id": r[0], "type": r[2], "name": r[1]} for r in find_results],
-            "results": []
+            "results": [
+                {
+                    "id": r["id"],
+                    "type": r["type"],
+                    "name": r["name"],
+                    "description": r["description"] if r["description"] != "[awaiting context]" else None,
+                    "score": r["score"],
+                }
+                for r in results
+            ],
         }
-        for r in results:
-            similarity = max(0, 1 - r['distance'] / 2)
-            out["results"].append({
-                "id": r['id'],
-                "type": r['type'],
-                "name": r['name'],
-                "description": r['description'] if r['description'] != '[awaiting context]' else None,
-                "similarity": round(similarity, 3),
-            })
         print(json.dumps(out, indent=2))
         return
 
-    if find_results:
-        print(f"Name matches for \"{query_text}\":")
-        for eid, name, etype in find_results:
-            print(f"  [{etype}] {name} — {eid}")
-        if results:
-            print(f"\nSemantic results (if the above isn't what you meant):")
-        else:
-            print(f"\n(No semantic results)")
-            return
-
     filter_label = f" (type: {type_filter})" if type_filter else ""
-    if not find_results:
-        print(f"Search: \"{query_text}\"{filter_label}")
+    print(f'Search: "{query_text}"{filter_label}')
     print(f"{'='*80}")
     for i, r in enumerate(results, 1):
-        # Distance to similarity: lower distance = better match
-        # sqlite-vec returns L2 distance; convert to a rough similarity score
-        similarity = max(0, 1 - r['distance'] / 2)
-        bar = "█" * int(similarity * 20)
-        desc = (r['description'] or '')[:60]
-        if desc == '[awaiting context]':
-            desc = ''
+        # Normalize RRF score to a display bar (max theoretical RRF score ≈ 2/61 ≈ 0.033)
+        bar_width = min(20, int(r["score"] / 0.033 * 20))
+        bar = "█" * bar_width
+        desc = (r["description"] or "")[:60]
+        if desc == "[awaiting context]":
+            desc = ""
         print(f"  {i:>2}. [{r['type']}] {r['name']}")
         if desc:
             print(f"      {desc}")
-        print(f"      {bar} {similarity:.0%}  —  {r['id']}")
+        print(f"      {bar}  —  {r['id']}")
 
 
 def cmd_changelog(args):

@@ -268,6 +268,16 @@ def main():
             claimed_at TEXT NOT NULL,
             expires_at TEXT NOT NULL
         );
+
+        -- Full-text search index for hybrid keyword+semantic search.
+        -- Rebuilt from scratch on every migrate run. FTS5 with porter stemmer
+        -- so "watch" matches "watcher", "watching", "watches".
+        CREATE VIRTUAL TABLE IF NOT EXISTS fts_entities USING fts5(
+            entity_id UNINDEXED,
+            name,
+            description,
+            tokenize='porter unicode61'
+        );
     """)
 
     # Schema-driven indexes — one per "indexed"-tier attribute and one per
@@ -489,6 +499,15 @@ def main():
                     """, (meta['id'], key, targets))
                     rel_count += 1
 
+    conn.commit()
+
+    # Populate FTS5 search index from all live entities
+    c.execute("""
+        INSERT INTO fts_entities(entity_id, name, description)
+        SELECT id, COALESCE(name, ''), COALESCE(description, '')
+        FROM entities
+        WHERE meta_status = 'live'
+    """)
     conn.commit()
 
     # Print summary

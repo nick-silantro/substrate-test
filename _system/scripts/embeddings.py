@@ -151,6 +151,59 @@ def _serialize_embedding(embedding):
     return struct.pack(f'{len(embedding)}f', *embedding)
 
 
+_RRF_K = 60  # Standard RRF constant — dampens high-rank outliers
+
+
+def _rrf_score(fts_rank=None, sem_rank=None):
+    """Reciprocal Rank Fusion score. Higher = better match.
+    Pass None for a system where the entity didn't appear.
+    """
+    score = 0.0
+    if fts_rank is not None:
+        score += 1.0 / (_RRF_K + fts_rank)
+    if sem_rank is not None:
+        score += 1.0 / (_RRF_K + sem_rank)
+    return score
+
+
+def _fts_search_raw(conn, query_text, limit, type_filter=None):
+    """Run FTS5 BM25 keyword search.
+
+    Returns list of (entity_id, fts_rank, name, type, description)
+    where fts_rank is 1-indexed position in BM25 result order (1 = best).
+    Returns [] on empty/short query or missing FTS table (old workspaces).
+    """
+    import re
+    cleaned = re.sub(r'["\*\(\)\:\^\{\}\[\]]', ' ', query_text).strip()
+    words = [w for w in cleaned.split() if len(w) >= 2]
+    if not words:
+        return []
+    # Prefix-match each word: "watch*" matches watcher, watches, watching
+    fts_query = ' '.join(f'"{w}"*' for w in words)
+
+    type_clause = "AND e.type = ?" if type_filter else ""
+    params = [fts_query]
+    if type_filter:
+        params.append(type_filter)
+    params.append(limit)
+
+    try:
+        rows = conn.execute(f"""
+            SELECT f.entity_id, rank, e.name, e.type, e.description
+            FROM fts_entities f
+            JOIN entities e ON f.entity_id = e.id
+            WHERE fts_entities MATCH ?
+            AND e.meta_status = 'live'
+            {type_clause}
+            ORDER BY rank
+            LIMIT ?
+        """, params).fetchall()
+        # Attach 1-indexed position (ORDER BY rank gives BM25 order)
+        return [(row[0], i + 1, row[2], row[3], row[4]) for i, row in enumerate(rows)]
+    except Exception:
+        return []  # FTS table absent on old workspaces — degrade silently
+
+
 def init_vec_table(conn):
     """Create the vec_entities virtual table if it doesn't exist.
 
@@ -258,6 +311,76 @@ def search(conn, query_text, limit=10, type_filter=None):
         })
 
     return results
+
+
+def hybrid_search(conn, query_text, limit=10, type_filter=None):
+    """Hybrid FTS5 + semantic search blended via Reciprocal Rank Fusion (RRF).
+
+    Falls back to FTS5-only when SEARCH_AVAILABLE is False (embeddings not set up)
+    or when individual entities have no embedding yet.
+
+    Returns: [{id, name, type, description, score}, ...] sorted by score desc.
+    score is an RRF value — not normalized to [0,1]. Higher = better match.
+    """
+    pool = limit * 3  # oversample both systems before merging
+
+    # --- FTS5 keyword results ---
+    fts_rows = _fts_search_raw(conn, query_text, pool, type_filter)
+    fts_ranks = {row[0]: row[1] for row in fts_rows}
+    fts_meta  = {row[0]: {"name": row[2], "type": row[3], "description": row[4]}
+                 for row in fts_rows}
+
+    # --- Semantic vector results ---
+    sem_ranks = {}
+    sem_meta  = {}
+    if SEARCH_AVAILABLE:
+        try:
+            emb = generate_embedding(query_text)
+            if emb:
+                blob = _serialize_embedding(emb)
+                type_clause = "AND e.type = ?" if type_filter else ""
+                params = [blob, pool]
+                if type_filter:
+                    params.append(type_filter)
+                params.append(pool)
+                rows = conn.execute(f"""
+                    SELECT v.entity_id, e.name, e.type, e.description
+                    FROM vec_entities v
+                    JOIN entities e ON v.entity_id = e.id
+                    WHERE v.embedding MATCH ? AND k = ?
+                    AND e.meta_status = 'live'
+                    {type_clause}
+                    ORDER BY v.distance
+                    LIMIT ?
+                """, params).fetchall()
+                for i, (eid, name, etype, desc) in enumerate(rows):
+                    sem_ranks[eid] = i + 1
+                    sem_meta[eid]  = {"name": name, "type": etype, "description": desc}
+        except Exception:
+            pass
+
+    # --- RRF fusion ---
+    all_ids = set(fts_ranks) | set(sem_ranks)
+    if not all_ids:
+        return []
+
+    scored = []
+    for eid in all_ids:
+        score = _rrf_score(
+            fts_rank=fts_ranks.get(eid),
+            sem_rank=sem_ranks.get(eid),
+        )
+        meta = fts_meta.get(eid) or sem_meta.get(eid)
+        scored.append({
+            "id":          eid,
+            "name":        meta["name"],
+            "type":        meta["type"],
+            "description": meta["description"],
+            "score":       round(score, 6),
+        })
+
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return scored[:limit]
 
 
 def remove_embedding(conn, entity_id):
