@@ -37,7 +37,7 @@ def _read_claude_oauth_token() -> str | None:
         try:
             # Ensure owner-only permissions regardless of how the file was created
             token_file.chmod(0o600)
-            token = token_file.read_text().strip()
+            token = token_file.read_text(encoding="utf-8").strip()
             if token:
                 return token
         except Exception:
@@ -106,7 +106,7 @@ def _engine_from_overlay(workspace: Path) -> Path | None:
         # Try yaml.safe_load first (full overlay support)
         try:
             import yaml as _yaml_ov
-            data = _yaml_ov.safe_load(overlay.read_text()) or {}
+            data = _yaml_ov.safe_load(overlay.read_text(encoding="utf-8")) or {}
             if isinstance(data, dict) and "engine" in data:
                 value = str(data["engine"]).strip()
                 if value:
@@ -114,7 +114,7 @@ def _engine_from_overlay(workspace: Path) -> Path | None:
         except Exception:
             pass
         # Fallback: line-by-line parser for simple engine: key
-        for line in overlay.read_text().splitlines():
+        for line in overlay.read_text(encoding="utf-8").splitlines():
             if line.startswith("engine:"):
                 value = line.split(":", 1)[1].strip()
                 if value:
@@ -132,7 +132,7 @@ def _load_overlay() -> dict:
         return {}
     try:
         import yaml as _yaml_ov
-        data = _yaml_ov.safe_load(overlay_path.read_text()) or {}
+        data = _yaml_ov.safe_load(overlay_path.read_text(encoding="utf-8")) or {}
         return data if isinstance(data, dict) else {}
     except Exception:
         return {}
@@ -146,7 +146,7 @@ def _save_overlay(data: dict) -> None:
     ip = instance_path()
     overlay_path = ip / "_system" / "overlay.yaml"
     overlay_path.parent.mkdir(parents=True, exist_ok=True)
-    overlay_path.write_text(_yaml_ov.dump(data, default_flow_style=False, sort_keys=False))
+    overlay_path.write_text(_yaml_ov.dump(data, default_flow_style=False, sort_keys=False), encoding="utf-8")
 
 
 def _resolve_type_alias(name: str, aliases: dict | None = None) -> str:
@@ -892,7 +892,7 @@ def cmd_verify(_rest: list[str]) -> None:
     overlay_detail = ""
     if overlay.exists():
         try:
-            _yaml.safe_load(overlay.read_text())
+            _yaml.safe_load(overlay.read_text(encoding="utf-8"))
             overlay_ok = True
         except Exception as e:
             overlay_detail = str(e)
@@ -968,13 +968,13 @@ def cmd_context(rest: list[str]) -> None:
     # Engine docs (agent-orientation, decision-record-structure, etc.)
     doc_path = ep / "_system" / "docs" / f"{name}.md"
     if doc_path.exists():
-        print(doc_path.read_text(), end="")
+        print(doc_path.read_text(encoding="utf-8"), end="")
         return
 
     # Workspace skills
     skill_path = ip / ".claude" / "skills" / name / "SKILL.md"
     if skill_path.exists():
-        print(skill_path.read_text(), end="")
+        print(skill_path.read_text(encoding="utf-8"), end="")
         return
 
     print(f"substrate context: '{name}' not found", file=sys.stderr)
@@ -997,7 +997,7 @@ def _read_update_channel() -> str:
         return "main"
     try:
         import yaml
-        data = yaml.safe_load(config.read_text()) or {}
+        data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
         channel = data.get("update_channel", "main")
         return channel if channel in ("main", "dev") else "main"
     except Exception:
@@ -1011,9 +1011,9 @@ def _set_update_channel(channel: str) -> None:
     config.parent.mkdir(parents=True, exist_ok=True)
     data = {}
     if config.exists():
-        data = yaml.safe_load(config.read_text()) or {}
+        data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
     data["update_channel"] = channel
-    config.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+    config.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False), encoding="utf-8")
 
 
 # ---------------------------------------------------------------------------
@@ -1052,7 +1052,7 @@ def _ensure_machine_id() -> tuple[str, bool]:
     if config.exists():
         try:
             import yaml as _yaml
-            data = _yaml.safe_load(config.read_text()) or {}
+            data = _yaml.safe_load(config.read_text(encoding="utf-8")) or {}
             existing_id = data.get("machine_id")
         except Exception:
             pass
@@ -1063,7 +1063,7 @@ def _ensure_machine_id() -> tuple[str, bool]:
     data["machine_id"] = new_id
     config.parent.mkdir(parents=True, exist_ok=True)
     import yaml as _yaml
-    config.write_text(_yaml.dump(data, default_flow_style=False, sort_keys=False))
+    config.write_text(_yaml.dump(data, default_flow_style=False, sort_keys=False), encoding="utf-8")
     return new_id, True
 
 
@@ -1130,7 +1130,7 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
             # Clean up old singleton-format plists (pre-slug) that belong to this workspace.
             for template in deploy_dir.glob("com.substrate.*.plist"):
                 old_dest = agents_dir / template.name
-                if old_dest.exists() and str(target) in old_dest.read_text():
+                if old_dest.exists() and str(target) in old_dest.read_text(encoding="utf-8"):
                     old_label = template.stem
                     subprocess.run(["launchctl", "bootout", f"{domain}/{old_label}"],
                                    capture_output=True)
@@ -1144,7 +1144,7 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
                 print(f"  • {label}: already installed (skipping — use --reinit to update)")
                 continue
 
-            dest.write_text(apply_subs(template.read_text()))
+            dest.write_text(apply_subs(template.read_text(encoding="utf-8")), encoding="utf-8")
 
             if reinstall:
                 subprocess.run(["launchctl", "bootout", f"{domain}/{label}"],
@@ -1167,7 +1167,7 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
             for template in list(deploy_dir.glob("substrate-*.service")) + \
                             list(deploy_dir.glob("substrate-*.timer")):
                 old_dest = user_systemd / template.name
-                if old_dest.exists() and str(target) in old_dest.read_text():
+                if old_dest.exists() and str(target) in old_dest.read_text(encoding="utf-8"):
                     subprocess.run(
                         ["systemctl", "--user", "disable", "--now", template.name],
                         capture_output=True,
@@ -1193,7 +1193,7 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
                     capture_output=True,
                 )
 
-            dest.write_text(apply_subs(template.read_text()))
+            dest.write_text(apply_subs(template.read_text(encoding="utf-8")), encoding="utf-8")
             newly_written.append(unit_name)
 
         subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
@@ -1561,7 +1561,7 @@ def cmd_init(rest: list[str]) -> None:
               types: []
               attributes: []
               relationships: []
-        """))
+        """), encoding="utf-8")
 
     # Link skills from engine into instance
     _link_skills(ep / "_system" / "skills", target / ".claude" / "skills")
@@ -1574,7 +1574,7 @@ def cmd_init(rest: list[str]) -> None:
         dest_claude.unlink()
     if claude_md_src.exists():
         if sys.platform == "win32":
-            dest_claude.write_text(claude_md_src.read_text())
+            dest_claude.write_text(claude_md_src.read_text(encoding="utf-8"), encoding="utf-8")
         else:
             dest_claude.symlink_to(claude_md_src)
     else:
@@ -1586,7 +1586,7 @@ def cmd_init(rest: list[str]) -> None:
             ```bash
             substrate context agent-orientation
             ```
-        """))
+        """), encoding="utf-8")
 
     # Bootstrap the SQLite index
     env = {**os.environ, "SUBSTRATE_PATH": str(target)}
@@ -1613,9 +1613,9 @@ def cmd_init(rest: list[str]) -> None:
         try:
             import yaml as _yaml
             _machine_id, _is_new_machine = _ensure_machine_id()
-            _ws_data = _yaml.safe_load(overlay.read_text()) or {}
+            _ws_data = _yaml.safe_load(overlay.read_text(encoding="utf-8")) or {}
             _workspace_id = _ws_data.get("workspace_id")
-            _version = (ep / "VERSION").read_text().strip() if (ep / "VERSION").exists() else None
+            _version = (ep / "VERSION").read_text(encoding="utf-8").strip() if (ep / "VERSION").exists() else None
             _platform = {"darwin": "darwin", "linux": "linux", "win32": "win32"}.get(sys.platform, sys.platform)
             if _is_new_machine:
                 _fire_metrics_event("machine_install", _machine_id, version=_version, platform=_platform)
@@ -1912,7 +1912,7 @@ def cmd_update_snooze(_rest: list[str]) -> None:
     if snooze_file.exists():
         try:
             import yaml
-            snooze = yaml.safe_load(snooze_file.read_text()) or {}
+            snooze = yaml.safe_load(snooze_file.read_text(encoding="utf-8")) or {}
         except Exception:
             snooze = {}
 
@@ -1980,11 +1980,11 @@ def cmd_update_anthropic(_rest: list[str]) -> None:
     if snooze_file.exists():
         try:
             import yaml
-            snooze = yaml.safe_load(snooze_file.read_text()) or {}
+            snooze = yaml.safe_load(snooze_file.read_text(encoding="utf-8")) or {}
             snooze.pop("agent_sdk", None)
             snooze.pop("claude_cli", None)
             if snooze:
-                snooze_file.write_text(yaml.dump(snooze, default_flow_style=False))
+                snooze_file.write_text(yaml.dump(snooze, default_flow_style=False), encoding="utf-8")
             else:
                 snooze_file.unlink()
         except Exception:
@@ -2007,7 +2007,7 @@ def cmd_update(_rest: list[str]) -> None:
         print(f"  To update manually: git -C <engine-path> pull origin {channel}")
         sys.exit(1)
 
-    _from_version = (ep / "VERSION").read_text().strip() if (ep / "VERSION").exists() else None
+    _from_version = (ep / "VERSION").read_text(encoding="utf-8").strip() if (ep / "VERSION").exists() else None
 
     result = subprocess.run(
         ["git", "-C", str(ep), "pull", "--ff-only", "origin", channel],
@@ -2024,7 +2024,7 @@ def cmd_update(_rest: list[str]) -> None:
 
     if "Already up to date" not in result.stdout:
         try:
-            _to_version = (ep / "VERSION").read_text().strip() if (ep / "VERSION").exists() else None
+            _to_version = (ep / "VERSION").read_text(encoding="utf-8").strip() if (ep / "VERSION").exists() else None
             if _from_version and _to_version and _from_version != _to_version:
                 _machine_id, _ = _ensure_machine_id()
                 _platform = {"darwin": "darwin", "linux": "linux", "win32": "win32"}.get(sys.platform, sys.platform)
@@ -2075,10 +2075,10 @@ def cmd_update(_rest: list[str]) -> None:
     if snooze_file.exists():
         try:
             import yaml
-            snooze = yaml.safe_load(snooze_file.read_text()) or {}
+            snooze = yaml.safe_load(snooze_file.read_text(encoding="utf-8")) or {}
             snooze.pop("substrate", None)
             if snooze:
-                snooze_file.write_text(yaml.dump(snooze, default_flow_style=False))
+                snooze_file.write_text(yaml.dump(snooze, default_flow_style=False), encoding="utf-8")
             else:
                 snooze_file.unlink()
         except Exception:
