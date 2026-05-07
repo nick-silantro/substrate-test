@@ -306,7 +306,7 @@ def run(script_name: str, args: list[str], stdin_json=None) -> None:
     if not s.exists():
         print(f"substrate: script not found: {s}", file=sys.stderr)
         sys.exit(2)
-    cmd = ["python3", str(s)] + args
+    cmd = [sys.executable, str(s)] + args
     result = subprocess.run(
         cmd,
         env=env,
@@ -1590,7 +1590,7 @@ def cmd_init(rest: list[str]) -> None:
     env = {**os.environ, "SUBSTRATE_PATH": str(target)}
     s = script("migrate-to-sqlite.py")
     if s.exists():
-        subprocess.run(["python3", str(s)], env=env, check=False)
+        subprocess.run([sys.executable, str(s)], env=env, check=False)
 
     # Stamp the migration log — mark all current migrations as already applied.
     # Fresh installs don't need to run migrations; this ensures the updater only
@@ -1862,7 +1862,7 @@ def cmd_search(rest: list[str]) -> None:
             print(f"substrate: setup-search.py not found in engine", file=sys.stderr)
             sys.exit(2)
         env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
-        result = subprocess.run(["python3", str(s)], env=env)
+        result = subprocess.run([sys.executable, str(s)], env=env)
         sys.exit(result.returncode)
 
     elif sub == "rebuild":
@@ -1871,7 +1871,7 @@ def cmd_search(rest: list[str]) -> None:
             print(f"substrate: rebuild-embeddings.py not found in engine", file=sys.stderr)
             sys.exit(2)
         env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
-        result = subprocess.run(["python3", str(s)], env=env)
+        result = subprocess.run([sys.executable, str(s)], env=env)
         sys.exit(result.returncode)
 
     else:
@@ -2048,7 +2048,7 @@ def cmd_update(_rest: list[str]) -> None:
     env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
     s = ep / "_system" / "scripts" / "migrate-to-sqlite.py"
     if s.exists():
-        subprocess.run(["python3", str(s)], env=env, check=False, capture_output=True)
+        subprocess.run([sys.executable, str(s)], env=env, check=False, capture_output=True)
         print(f"  ✓ Index rebuilt")
 
     # --- Check for alias collisions introduced by the update ---
@@ -2111,7 +2111,7 @@ def cmd_sync(_rest: list[str]) -> None:
     env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
     s = ep / "_system" / "scripts" / "migrate-to-sqlite.py"
     if s.exists():
-        subprocess.run(["python3", str(s)], env=env, check=False, capture_output=True)
+        subprocess.run([sys.executable, str(s)], env=env, check=False, capture_output=True)
         print(f"✓ Index rebuilt")
 
 
