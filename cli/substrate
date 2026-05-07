@@ -2107,6 +2107,14 @@ def cmd_update(_rest: list[str]) -> None:
         else:
             print(f"  ⚠ Search setup failed — run 'substrate search setup' manually")
 
+    # --- Reinstall services with updated configs from the new engine ---
+    if ip.exists():
+        try:
+            _install_services(ip, ep, reinstall=True)
+            print(f"  ✓ Services updated")
+        except Exception as e:
+            print(f"  ⚠ Service update failed: {e} — run 'substrate init --reinit' manually")
+
     # --- Refresh pending-updates.md now that engine is current ---
     check_script = ep / "_system" / "scripts" / "check-for-updates.py"
     if check_script.exists():

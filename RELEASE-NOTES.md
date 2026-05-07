@@ -1,5 +1,33 @@
 # Substrate Release Notes
 
+## 0.1.13-3
+
+**Release notes and service update discipline**
+
+- `substrate update` now reinstalls background services automatically, so configuration changes (like updated check intervals) take effect without running `substrate init --reinit` separately.
+- Added release notes discipline to operator documentation — every push to substrate-test or substrate-core now requires a RELEASE-NOTES.md entry.
+
+## 0.1.13-2
+
+**Snooze now clears the pending update notice**
+
+- Fixed: snoozed updates were leaving the pending-updates notification in place, causing it to resurface in the next session even though the version had been declined. The notice is now cleared immediately on snooze.
+
+## 0.1.13-1
+
+**Windows update fix: skills folder**
+
+- Fixed an error during `substrate update` on Windows where the skills folder (a directory junction) couldn't be removed. The update now handles Windows directory junctions correctly.
+
+## 0.1.13-0
+
+**Windows compatibility**
+
+- Fixed installation hang: the Windows PATH broadcast no longer blocks on unresponsive windows.
+- Fixed encoding crashes: all file reads and writes now explicitly use UTF-8. Previously, Windows defaulted to cp1252, which corrupted entity files containing em-dashes, arrows, or other non-ASCII characters and caused session startup to crash.
+- Added a bash shim (`substrate`) alongside `substrate.bat` so the CLI works correctly in Git Bash (the shell Claude Code uses on Windows).
+- Set `PYTHONUTF8=1` in the Windows shim so all child processes inherit UTF-8 encoding.
+
 ## 0.1.12
 
 **Install metrics**
