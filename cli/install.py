@@ -378,7 +378,8 @@ def main() -> None:
     _info(f"Engine:     {args.engine}")
     print()
     if sys.platform == "win32":
-        _info("Open a new terminal window — the substrate command is now on your PATH.")
+        _info("Close Claude Code completely and reopen it — the substrate command will then be on your PATH.")
+        _info("(A new session in the same window is not enough; the app itself must restart.)")
         print()
     _info("Open your workspace in Claude Code to get started:")
     print()
