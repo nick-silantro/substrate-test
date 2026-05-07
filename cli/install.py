@@ -101,12 +101,9 @@ def _check_prerequisites() -> None:
     if shutil.which("claude"):
         _ok("Claude Code")
     else:
-        if sys.platform == "win32":
-            _warn("Claude Code not detected on PATH — if you're already running this")
-            _warn("inside Claude Code, you're fine. Otherwise: https://claude.ai/code")
-        else:
-            _warn("Claude Code not found. Install from https://claude.ai/code")
-            _warn("(Required to use Substrate with an AI assistant)")
+        _warn("Claude Code not found. May not be on PATH — this check sometimes")
+        _warn("fails from within an active Claude Code session. If not yet installed:")
+        _warn("https://claude.ai/code")
 
     print()
 
