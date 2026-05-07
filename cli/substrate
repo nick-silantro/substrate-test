@@ -1956,6 +1956,8 @@ def cmd_update_snooze(_rest: list[str]) -> None:
 
     import yaml
     snooze_file.write_text(yaml.dump(snooze, default_flow_style=False), encoding="utf-8")
+    if pending.exists():
+        pending.unlink()
     print("\nUpdate snoozed. It will resurface when a newer version is available.")
 
 
