@@ -1,0 +1,203 @@
+# Substrate — Guided Setup
+
+A user has asked you to install Substrate. This file is your briefing. Read it fully before you start, then guide the user through setup conversationally — explain what's happening at each step, watch the output, and troubleshoot anything that comes up. You are the guide; they are not doing this alone.
+
+---
+
+## What is Substrate?
+
+Substrate is a personal knowledge graph that runs on the user's machine. Entities are folders with structured metadata and content files, linked by relationships, indexed in SQLite. The graph grows through use — conversations, decisions, projects, people, ideas — all as structured, queryable objects.
+
+The mental model: a second brain that's actually organized.
+
+---
+
+## What You're Installing
+
+- **Engine** — shared scripts, schema, and skills, cloned to ~/.substrate/engine
+- **Workspace** — the user's personal instance, at ~/substrate by default
+- **CLI** — the `substrate` command, linked to a location on the user's PATH
+
+---
+
+## Prerequisites
+
+Check these before running the installer:
+
+- **Claude Code** — run `claude --version`. If the check fails, you must ask the user this exact question and wait for their explicit answer before proceeding: "Are you running this conversation inside Claude Code?" Do not infer, assume, or assert the answer — even if you believe you already know it. If they confirm yes, proceed. If no, send them to https://claude.ai/code and wait.
+- **Python 3.9+** — run `python3 --version` (Mac/Linux) or `python --version` (Windows).
+- **Git** — run `git --version`.
+---
+
+## Installation
+
+Before running the installer, ask: "Where would you like your workspace? The default is `~/substrate` — let me know if you want a different name or path." If they want a custom location, add `--instance /path/to/workspace` to the install command.
+
+Download and run the installer:
+
+**Mac / Linux:**
+```
+curl -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-test/main/cli/install.py -o install.py && python3 install.py --repo https://github.com/nick-silantro/substrate-test.git
+```
+
+**Windows (PowerShell):**
+```
+curl.exe -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-test/main/cli/install.py -o install.py; python install.py --repo https://github.com/nick-silantro/substrate-test.git
+```
+
+**Important — run synchronously, not in background.** The installer prints status as it runs and takes 2–5 minutes (longer if the embedding model needs to download). Run it as a single blocking command with a timeout of at least 10 minutes. Do not background it or you will get no output.
+
+Walk them through each step as it runs:
+
+**Prerequisites** — Checks Python 3 and Git. PyYAML is installed if missing.
+
+**Engine install** — Clones the Substrate engine to `~/.substrate/engine`. On subsequent runs, pulls the latest.
+
+**CLI install** — On Mac/Linux, links the `substrate` command to a directory on the user's PATH. On Windows, creates a `substrate.bat` wrapper and adds it to the user's PATH. The PATH change takes effect in new terminal sessions only — the current session won't have `substrate` available yet. This is expected; see the note in Setup below.
+
+**Workspace setup** — Calls `substrate init` to create the instance folder, write `CLAUDE.md`, link skills into `.claude/skills/`, build the SQLite index, and install background services.
+
+**Background services:**
+- *Mac* — launchd services installed automatically (entity-watcher, evaluate-triggers)
+- *Linux* — systemd user units installed and enabled automatically (entity-watcher, evaluate-triggers timer). If auto-enable fails, the installer prints the manual commands.
+- *Windows* — Task Scheduler tasks installed automatically (EntityWatcher, EvaluateTriggers)
+
+When it prints "Substrate is ready." — installation is complete. Note the workspace path shown underneath. Continue to Setup below.
+
+If the installer reports that a workspace already exists at the default path and was left as-is, acknowledge this to the user: "Looks like you already have a Substrate workspace at [path] — I'll use that one. Want a fresh one at a different location instead?" If they want a fresh one, re-run with `--instance /new/path`.
+
+---
+
+## Setup
+
+You just installed a knowledge graph. Now help the person fill it in.
+
+Shift your posture: you're no longer running an installer — you're a knowledgeable friend getting oriented before you start helping. Keep it conversational. Don't explain what Substrate is again. Just ask, listen, and remember — you'll use what they tell you at the end.
+
+**Tone and pacing rules for this section:**
+- Frame the topics before starting: "I'm going to cover four topics with you. Your answers get saved to your workspace — they help every future agent know who you are and how you work, so you don't have to explain yourself each session. This takes about two minutes."
+- Number each topic visibly when you introduce it: "Topic 1 of 4:", "Topic 2 of 4:", etc. This way follow-up questions feel like part of the topic, not additional topics, and people have a clear sense of progress.
+- After each answer: one brief acknowledgment (one sentence max), then the next question. No extended reactions, no drawing connections, no summaries.
+- Use a bridging sentence before each new topic rather than jumping directly. A simple "Got it." followed by the next question is enough.
+
+### Get their name
+
+Start here:
+
+> "Two quick things: what should agents in your workspace call you? And what's your full name — that goes in your profile record."
+
+These are two distinct pieces of information. The call name is what appears in conversation. The full name goes in the user entity for records. If they give only one, use it for both.
+
+Do not say "Good to meet you" or anything that implies this is a first introduction — they may already be known to you via their account. Acknowledge the name simply: "Got it, [name]." or "Good — that's in your profile."
+
+### Four questions
+
+**1. What gets lost?**
+
+> "What's the thing that currently gets lost — decisions you made, context you built up, threads you were tracking? What do you wish you could just find?"
+
+Start here. Their answer reveals their pain point and shapes the narrative and bulletin board.
+
+Follow-up if they name a specific domain or project: "Tell me more — what does the mess look like?"
+Follow-up if they say "everything": "What's the one that costs you the most when you lose it?"
+
+**2. What are you working on?**
+
+> "What are you actually working on right now — the thing that's most alive for you?"
+
+This establishes what the workspace is for. Comes after pain because starting with their experience tells you more than starting with their resume.
+
+Follow-up only if the answer is ambiguous or points at something worth pulling — ask about the mode they're in (building, managing, researching, something else). Don't ask if it's already obvious. Default is brevity. If they mention a near-term goal or deadline, note it.
+
+**3. How technical are you — really?**
+
+> "When something technical comes up in your workspace — an error, a config setting, a command — how do you prefer agents to handle it? Walk you through it step by step, or take care of it and give you the plain-language summary?"
+
+This is a question about communication preference, not capability. It shapes how agents in the workspace show up for them — not how you specifically behave right now.
+
+Follow-up if their answer lands in the middle: "If you had to pick a side — full control and explanation, or handled for you with a summary — which feels more comfortable?"
+
+**4. How do you want to work with AI?**
+
+> "Some people want an AI that takes initiative and connects dots proactively. Others want it to stay in its lane and only do what's asked. What's worked for you, and what's driven you crazy?"
+
+This one is the bookend. It rarely needs follow-up — the answer is usually self-contained. If they name a specific frustration, capture it verbatim.
+
+### Synthesize and create
+
+Tell them you're setting up their workspace now.
+
+**CLI note:** On Mac/Linux, use `substrate` as shown. On Windows, `substrate` is not available in the current terminal session — use the full path instead: `python %USERPROFILE%\.substrate\engine\cli\substrate` (or substitute the engine path printed during installation if it differs from the default).
+
+Write the following to `{workspace_path}/_system/onboarding-input.json`, replacing all bracketed content with what you learned in the conversation:
+
+```json
+{
+  "user": {
+    "call_name": "their preferred call name",
+    "full_name": "their full name, or same as call_name if not given",
+    "focus": "1–3 sentences on what they are working on right now",
+    "working_style": "Their technical preference (from Q3) and how they want to work with AI (from Q4). Write this as a paragraph an agent would actually use to calibrate its behavior."
+  },
+  "narrative": {
+    "focus": "1–3 sentences — what this workspace is for, what they are trying to accomplish",
+    "motion": "What is moving right now, in which direction, how fast. This is feel, not a list — write it like someone describing the current of a river, not a project status.",
+    "workspace_state": "New workspace. Just getting started.",
+    "user_state": "Anything personal they mentioned — a deadline, a situation, something they are navigating. Use empty string if nothing came up."
+  },
+  "bulletin_board": {
+    "seed": "An agent-facing note, not a user-facing message. One short paragraph: who they are, what they are building, their pain point, the key thing to help with. If they mentioned a near-term goal or deadline, end with it."
+  }
+}
+```
+
+Then run:
+
+*Mac / Linux:*
+```
+cd {workspace_path} && substrate onboard --from _system/onboarding-input.json
+```
+
+*Windows:*
+```
+cd {workspace_path}
+python %USERPROFILE%\.substrate\engine\cli\substrate onboard --from _system/onboarding-input.json
+```
+
+After it completes, tell the user:
+
+> "Your workspace is ready. Here's what just landed there: your profile (who you are, how you like to work), and a context document that future agents read at the start of every session.
+>
+> To get started: close Claude Code completely and reopen it, then open [workspace_path] as your project. When the session opens, type: **I'm new to Substrate.** Your assistant will take it from there."
+
+Use the workspace path that was printed during install. On Windows, emphasize closing and reopening the application — not just starting a new session. Do not give terminal commands.
+
+---
+
+## Common Issues
+
+**"substrate: command not found" during setup (same session as install)**: On Windows, use the full path as described in the CLI note above. Do not open a new terminal — stay in this session to complete setup.
+
+**"substrate: command not found" after setup (new session)**: On Windows, close Claude Code completely and reopen it — a new session inside the same window is not enough, the application itself must restart. On Mac/Linux, open a new terminal; run `source ~/.zshrc` if that doesn't help.
+
+**"Failed to clone engine"**: Usually a network issue. Check internet connectivity and retry.
+
+**Python not found on Windows**: Try `python` instead of `python3`. If neither works, install Python from https://python.org and make sure "Add to PATH" is checked during install.
+
+**Entity-watcher fails to start (Mac/Linux)**: The venv wasn't set up. Run:
+```
+python3 -m venv ~/substrate/_system/venv && ~/substrate/_system/venv/bin/pip install watchdog
+```
+Then restart the service:
+- *Mac*: `launchctl bootout gui/$(id -u)/com.substrate.entity-watcher && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.entity-watcher.plist`
+- *Linux*: `systemctl --user restart substrate-entity-watcher`
+
+**Entity-watcher fails to start (Windows)**: Run in PowerShell:
+```
+python -m venv $env:USERPROFILE\substrate\_system\venv
+$env:USERPROFILE\substrate\_system\venv\Scripts\pip install watchdog
+schtasks /Run /TN "Substrate\EntityWatcher"
+```
+
+---
+get-substrate.com
