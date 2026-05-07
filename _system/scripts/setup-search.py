@@ -116,7 +116,7 @@ def download_model():
     """Pre-download the ONNX embedding model so first search isn't slow."""
     if not _search_available:
         return
-    print("  Downloading ONNX embedding model (Qdrant/fast-bge-small-en-v1.5)...")
+    print("  Downloading ONNX embedding model (Qdrant/bge-small-en-v1.5-onnx-Q)...")
     print("  This may take a minute on first run (~50MB download).")
     # Pass cache path via env var — embedding Windows paths directly in a -c string
     # causes SyntaxError because backslashes are parsed as unicode escapes (\U...).
@@ -128,7 +128,7 @@ from huggingface_hub import hf_hub_download
 
 cache_dir = os.environ["SUBSTRATE_MODEL_CACHE"]
 os.makedirs(cache_dir, exist_ok=True)
-HF_REPO = "Qdrant/fast-bge-small-en-v1.5"
+HF_REPO = "Qdrant/bge-small-en-v1.5-onnx-Q"
 local_dir = os.path.join(cache_dir, HF_REPO.replace("/", "--"))
 os.makedirs(local_dir, exist_ok=True)
 
