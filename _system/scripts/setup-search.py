@@ -6,15 +6,11 @@ Creates a managed venv at _system/venv/, installs sqlite-vec and the
 embedding stack (onnxruntime + tokenizers + huggingface-hub + numpy),
 downloads the ONNX model, and verifies everything works.
 
-Usage: python3 _system/scripts/setup-search.py [--skip-model]
-
-  --skip-model   Create venv and install packages but skip model download.
-                 The model is downloaded automatically on first search use.
+Usage: python3 _system/scripts/setup-search.py
 
 Run once. Safe to re-run (skips already-installed packages).
 """
 
-import argparse
 import os
 import sys
 import subprocess
@@ -186,15 +182,9 @@ print(f"OK dim={emb.shape[1]}")
         open(marker, "w").close()
     except Exception:
         pass
-            break
 
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--skip-model", action="store_true",
-                   help="Skip model download; model will be fetched on first search use")
-    args = p.parse_args()
-
     print("Setting up semantic search for Substrate")
     print("=" * 50)
 
@@ -208,11 +198,8 @@ def main():
     verify_imports()
     verify_sqlite_vec()
 
-    if args.skip_model:
-        print("\n4. Skipping model download (will fetch on first search use).")
-    else:
-        print("\n4. Downloading embedding model...")
-        download_model()
+    print("\n4. Downloading embedding model...")
+    download_model()
 
     print("\n" + "=" * 50)
     if _search_available:
@@ -220,7 +207,7 @@ def main():
     else:
         print("Search venv ready (semantic search unavailable — see warning above).")
     print(f"  Venv: {VENV_PATH}")
-    if _search_available and not args.skip_model:
+    if _search_available:
         print(f"  Next: python3 _system/scripts/rebuild-embeddings.py")
         print(f"  Then: python3 _system/scripts/query.py search \"your query\"")
 
