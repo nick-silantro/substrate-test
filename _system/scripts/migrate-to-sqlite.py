@@ -529,7 +529,20 @@ def main():
             os.remove(sidecar)
 
     # Atomic swap: live DB only changes when the full build is on disk.
-    os.replace(tmp_path, DB_PATH)
+    import time as _time
+    for attempt in range(3):
+        try:
+            os.replace(tmp_path, DB_PATH)
+            break
+        except PermissionError:
+            if attempt == 2:
+                print(
+                    "\nError: substrate.db is locked by another process.\n"
+                    "Close any other Substrate processes (entity-watcher, Surface, Relay)\n"
+                    "and run:  substrate index rebuild"
+                )
+                sys.exit(1)
+            _time.sleep(0.5)
     print(f"\nDatabase written to: {DB_PATH}")
 
 

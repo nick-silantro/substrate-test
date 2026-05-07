@@ -1079,7 +1079,8 @@ def _setup_venv(target: Path) -> None:
         if result.returncode != 0:
             print(f"  ! venv creation failed — entity-watcher won't start: {result.stderr.strip()}")
             return
-    pip = venv / "bin" / "pip"
+    scripts_dir = "Scripts" if sys.platform == "win32" else "bin"
+    pip = venv / scripts_dir / "pip"
     result = subprocess.run([str(pip), "install", "watchdog", "--quiet"], capture_output=True, text=True)
     if result.returncode == 0:
         print("  ✓ venv: watchdog installed (entity-watcher)")
@@ -1254,6 +1255,7 @@ def _install_services_windows(
             ),
             "xml": lambda cmd_path: _entity_watcher_xml(cmd_path, target, logs_dir),
             "start_immediately": True,
+            "registry_fallback": True,
         },
         {
             "label": f"substrate-evaluate-triggers-{slug}",
@@ -1314,8 +1316,28 @@ def _install_services_windows(
                     ["schtasks", "/Run", "/TN", task["task_name"]],
                     capture_output=True,
                 )
+        elif task.get("registry_fallback"):
+            _install_via_registry_run(task["label"], cmd_path)
         else:
             print(f"  ! {task['label']}: install failed — {r.stderr.strip()}")
+
+
+def _install_via_registry_run(label: str, cmd_path: Path) -> None:
+    """Fallback: register cmd_path in HKCU Run key (no elevation required)."""
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            winreg.KEY_SET_VALUE,
+        ) as key:
+            winreg.SetValueEx(key, label, 0, winreg.REG_SZ, f'"{cmd_path}"')
+        subprocess.Popen([str(cmd_path)], creationflags=0x00000008)  # DETACHED_PROCESS
+        print(f"  ✓ {label}: installed via registry Run key (starts at logon)")
+    except Exception as e:
+        print(f"  ! {label}: Task Scheduler and registry fallback both failed — {e}")
+        print(f"    To start manually: {cmd_path}")
 
 
 def _entity_watcher_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
