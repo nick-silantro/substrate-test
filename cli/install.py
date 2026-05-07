@@ -270,15 +270,21 @@ def _install_cli_windows(cli_src: Path) -> None:
                 winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ,
                                   f"{s};{cur}" if cur else s)
                 _info("Added ~/.local/bin to user PATH")
-        # Broadcast WM_SETTINGCHANGE so Explorer and running apps reload the
-        # environment from the registry immediately — without this, apps
-        # launched from the taskbar/Start menu won't see the new PATH until
-        # the user logs out and back in.
+        # Broadcast WM_SETTINGCHANGE so Explorer reloads its environment from
+        # the registry — apps subsequently launched from Explorer will inherit
+        # the updated PATH. SendMessageTimeoutW with SMTO_ABORTIFHUNG avoids
+        # an indefinite hang if any window is unresponsive (SendMessageW blocks
+        # forever in that case).
         try:
             import ctypes
             HWND_BROADCAST = 0xFFFF
             WM_SETTINGCHANGE = 0x001A
-            ctypes.windll.user32.SendMessageW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment")
+            SMTO_ABORTIFHUNG = 0x0002
+            result = ctypes.c_ulong()
+            ctypes.windll.user32.SendMessageTimeoutW(
+                HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment",
+                SMTO_ABORTIFHUNG, 5000, ctypes.byref(result)
+            )
         except Exception:
             pass  # Non-fatal — PATH is in the registry, will apply on next login
         _ok("User PATH updated")
