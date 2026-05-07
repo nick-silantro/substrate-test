@@ -40,12 +40,21 @@ Implementation:
 
 import os
 import re
-import fcntl
-import signal
+import sys
 import tempfile
 from contextlib import contextmanager
 
 import yaml
+
+_IS_WINDOWS = sys.platform == "win32"
+
+if not _IS_WINDOWS:
+    import fcntl
+    import signal
+else:
+    import threading
+    _win_file_locks: dict = {}
+    _win_registry_lock = threading.Lock()
 
 
 # Timeout for acquiring file locks (seconds).
@@ -73,48 +82,84 @@ def safe_write(path, create=False):
 
     The write_fn may be called at most once. If the context exits without
     calling write_fn, no changes are made and the lock is released cleanly.
+
+    Locking strategy:
+      POSIX: fcntl.flock on a .lock sidecar — cross-process exclusive lock.
+      Windows: threading.Lock keyed by path — in-process mutual exclusion.
+        Cross-process locking on Windows requires external deps (filelock);
+        single-user workspaces make this an acceptable trade-off.
     """
-    lock_path = path + ".lock"
-    lock_dir = os.path.dirname(lock_path)
-    os.makedirs(lock_dir, exist_ok=True)
+    if _IS_WINDOWS:
+        with _win_registry_lock:
+            if path not in _win_file_locks:
+                _win_file_locks[path] = threading.Lock()
+            lock = _win_file_locks[path]
 
-    lock_fd = open(lock_path, "w")
-    try:
-        # Acquire exclusive lock with timeout — a stuck process shouldn't
-        # block all writers indefinitely. Crashed processes are fine (OS
-        # releases flock on death); this catches the live-but-frozen case.
-        prev_handler = signal.signal(signal.SIGALRM, _lock_timeout_handler)
-        signal.alarm(LOCK_TIMEOUT_SECONDS)
+        acquired = lock.acquire(timeout=LOCK_TIMEOUT_SECONDS)
+        if not acquired:
+            raise TimeoutError(f"safe_write: could not acquire lock within {LOCK_TIMEOUT_SECONDS}s")
         try:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    content = f.read()
+            elif create:
+                content = ""
+            else:
+                raise FileNotFoundError(f"safe_write: {path} does not exist (use create=True for new files)")
+
+            written = False
+
+            def write_fn(new_content):
+                nonlocal written
+                if written:
+                    raise RuntimeError("safe_write: write_fn called more than once")
+                written = True
+                _atomic_write(path, new_content)
+
+            yield content, write_fn
         finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, prev_handler)
+            lock.release()
 
-        # Read current content
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                content = f.read()
-        elif create:
-            content = ""
-        else:
-            raise FileNotFoundError(f"safe_write: {path} does not exist (use create=True for new files)")
+    else:
+        lock_path = path + ".lock"
+        lock_dir = os.path.dirname(lock_path)
+        os.makedirs(lock_dir, exist_ok=True)
 
-        written = False
+        lock_fd = open(lock_path, "w")
+        try:
+            # Acquire exclusive lock with timeout — a stuck process shouldn't
+            # block all writers indefinitely. Crashed processes are fine (OS
+            # releases flock on death); this catches the live-but-frozen case.
+            prev_handler = signal.signal(signal.SIGALRM, _lock_timeout_handler)
+            signal.alarm(LOCK_TIMEOUT_SECONDS)
+            try:
+                fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            finally:
+                signal.alarm(0)
+                signal.signal(signal.SIGALRM, prev_handler)
 
-        def write_fn(new_content):
-            nonlocal written
-            if written:
-                raise RuntimeError("safe_write: write_fn called more than once")
-            written = True
-            _atomic_write(path, new_content)
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    content = f.read()
+            elif create:
+                content = ""
+            else:
+                raise FileNotFoundError(f"safe_write: {path} does not exist (use create=True for new files)")
 
-        yield content, write_fn
+            written = False
 
-    finally:
-        # Release lock
-        fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        lock_fd.close()
+            def write_fn(new_content):
+                nonlocal written
+                if written:
+                    raise RuntimeError("safe_write: write_fn called more than once")
+                written = True
+                _atomic_write(path, new_content)
+
+            yield content, write_fn
+
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            lock_fd.close()
 
 
 def _atomic_write(path, content):
@@ -128,7 +173,7 @@ def _atomic_write(path, content):
     try:
         with os.fdopen(fd, "w") as f:
             f.write(content)
-        os.rename(tmp_path, path)
+        os.replace(tmp_path, path)
     except BaseException:
         # Clean up temp file on any error
         try:

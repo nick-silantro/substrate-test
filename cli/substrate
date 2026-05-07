@@ -1285,6 +1285,8 @@ def _install_services_windows(
         },
     ]
 
+    (target / "_system" / "scripts").mkdir(parents=True, exist_ok=True)
+
     for task in tasks:
         cmd_path = target / "_system" / "scripts" / task["cmd_name"]
         cmd_path.write_text(task["cmd_body"], encoding="utf-8")

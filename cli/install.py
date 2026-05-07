@@ -101,8 +101,12 @@ def _check_prerequisites() -> None:
     if shutil.which("claude"):
         _ok("Claude Code")
     else:
-        _warn("Claude Code not found. Install from https://claude.ai/code")
-        _warn("(Required to use Substrate with an AI assistant)")
+        if sys.platform == "win32":
+            _warn("Claude Code not detected on PATH — if you're already running this")
+            _warn("inside Claude Code, you're fine. Otherwise: https://claude.ai/code")
+        else:
+            _warn("Claude Code not found. Install from https://claude.ai/code")
+            _warn("(Required to use Substrate with an AI assistant)")
 
     print()
 
@@ -304,6 +308,8 @@ def _contains(path: Path, text: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = _parse_args()
     _check_prerequisites()
     cli_src = _install_engine(args.engine, args.repo, args.tag)
@@ -315,9 +321,16 @@ def main() -> None:
     _info(f"Workspace:  {args.instance}")
     _info(f"Engine:     {args.engine}")
     print()
+    if sys.platform == "win32":
+        _info("Open a new terminal window — the substrate command is now on your PATH.")
+        print()
     _info("Open your workspace in Claude Code to get started:")
     print()
-    print(f"    cd {args.instance} && claude")
+    if sys.platform == "win32":
+        print(f"    cd {args.instance}")
+        print( "    claude")
+    else:
+        print(f"    cd {args.instance} && claude")
     print()
     _info("Claude will load your orientation automatically from CLAUDE.md.")
 
