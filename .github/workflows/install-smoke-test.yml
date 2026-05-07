@@ -1,0 +1,50 @@
+name: Install smoke test
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke-test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Download installer
+        shell: bash
+        run: curl -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-test/main/cli/install.py -o install.py
+
+      - name: Run installer
+        env:
+          PYTHONUTF8: "1"
+          REPO: https://github.com/nick-silantro/substrate-test.git
+        run: python install.py --repo "$REPO" --instance ~/substrate-ci
+        shell: bash
+
+      - name: Verify workspace
+        shell: bash
+        run: |
+          failed=0
+          for path in \
+            "$HOME/substrate-ci/CLAUDE.md" \
+            "$HOME/substrate-ci/entities" \
+            "$HOME/substrate-ci/_system/index/substrate.db" \
+            "$HOME/.substrate/engine/cli/substrate"; do
+            if [ ! -e "$path" ]; then
+              echo "MISSING: $path"
+              failed=1
+            else
+              echo "OK: $path"
+            fi
+          done
+          exit $failed
