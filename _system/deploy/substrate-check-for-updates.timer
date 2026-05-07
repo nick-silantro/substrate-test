@@ -1,14 +1,14 @@
 # systemd user timer for the Substrate update checker (Linux).
 #
-# Runs substrate-check-for-updates.service every 30 minutes.
-# NOTE: 30-minute interval is intentional for testing. Increase for production.
+# Runs substrate-check-for-updates.service every 15 minutes.
+# NOTE: 15-minute interval for testing. Production target: 1 hour.
 
 [Unit]
-Description=Run Substrate update checker every 30 minutes
+Description=Run Substrate update checker every 15 minutes
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=30min
+OnUnitActiveSec=15min
 
 [Install]
 WantedBy=timers.target

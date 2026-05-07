@@ -1,7 +1,7 @@
 # systemd user service for the Substrate update checker (Linux).
 #
-# Triggered by substrate-check-for-updates.timer every 30 minutes.
-# NOTE: 30-minute interval is intentional for testing. Increase for production.
+# Triggered by substrate-check-for-updates.timer every 15 minutes.
+# NOTE: 15-minute interval for testing. Production target: 1 hour.
 #
 # Placeholders — substituted automatically by `substrate init`:
 #   __WORKSPACE__   workspace root path
