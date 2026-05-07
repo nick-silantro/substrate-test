@@ -1293,7 +1293,10 @@ def _install_services_windows(
         cmd_path = target / "_system" / "scripts" / task["cmd_name"]
         cmd_path.write_text(task["cmd_body"], encoding="utf-8")
 
-        xml_content = task["xml"](cmd_path)
+        vbs_path = cmd_path.with_suffix(".vbs")
+        vbs_path.write_text(_silent_runner_vbs(cmd_path), encoding="utf-8")
+
+        xml_content = task["xml"](vbs_path)
         xml_path = target / "_system" / f'_task_{task["label"]}.xml'
         xml_path.write_text(xml_content, encoding="utf-16")
 
@@ -1317,30 +1320,40 @@ def _install_services_windows(
                     capture_output=True,
                 )
         elif task.get("registry_fallback"):
-            _install_via_registry_run(task["label"], cmd_path)
+            _install_via_registry_run(task["label"], vbs_path)
         else:
             print(f"  ! {task['label']}: install failed — {r.stderr.strip()}")
 
 
-def _install_via_registry_run(label: str, cmd_path: Path) -> None:
-    """Fallback: register cmd_path in HKCU Run key (no elevation required)."""
+def _silent_runner_vbs(cmd_path: Path) -> str:
+    """VBS wrapper that runs cmd_path with no visible window (style 0)."""
+    return (
+        'Dim sh\n'
+        'Set sh = CreateObject("WScript.Shell")\n'
+        f'sh.Run Chr(34) & "{cmd_path}" & Chr(34), 0, True\n'
+    )
+
+
+def _install_via_registry_run(label: str, vbs_path: Path) -> None:
+    """Fallback: register vbs_path in HKCU Run key (no elevation required)."""
     try:
         import winreg
+        run_value = f'wscript.exe //B //NoLogo "{vbs_path}"'
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER,
             r"Software\Microsoft\Windows\CurrentVersion\Run",
             0,
             winreg.KEY_SET_VALUE,
         ) as key:
-            winreg.SetValueEx(key, label, 0, winreg.REG_SZ, f'"{cmd_path}"')
-        subprocess.Popen([str(cmd_path)], creationflags=0x00000008)  # DETACHED_PROCESS
+            winreg.SetValueEx(key, label, 0, winreg.REG_SZ, run_value)
+        subprocess.Popen(["wscript.exe", "//B", "//NoLogo", str(vbs_path)], creationflags=0x00000008)
         print(f"  ✓ {label}: installed via registry Run key (starts at logon)")
     except Exception as e:
         print(f"  ! {label}: Task Scheduler and registry fallback both failed — {e}")
         print(f"    To start manually: {cmd_path}")
 
 
-def _entity_watcher_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
+def _entity_watcher_xml(vbs_path: Path, workspace: Path, logs_dir: Path) -> str:
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -1367,14 +1380,15 @@ def _entity_watcher_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>{cmd_path}</Command>
+      <Command>wscript.exe</Command>
+      <Arguments>//B //NoLogo "{vbs_path}"</Arguments>
       <WorkingDirectory>{workspace}</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>"""
 
 
-def _evaluate_triggers_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
+def _evaluate_triggers_xml(vbs_path: Path, workspace: Path, logs_dir: Path) -> str:
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -1404,14 +1418,15 @@ def _evaluate_triggers_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> s
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>{cmd_path}</Command>
+      <Command>wscript.exe</Command>
+      <Arguments>//B //NoLogo "{vbs_path}"</Arguments>
       <WorkingDirectory>{workspace}</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>"""
 
 
-def _check_for_updates_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> str:
+def _check_for_updates_xml(vbs_path: Path, workspace: Path, logs_dir: Path) -> str:
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
@@ -1441,7 +1456,8 @@ def _check_for_updates_xml(cmd_path: Path, workspace: Path, logs_dir: Path) -> s
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>{cmd_path}</Command>
+      <Command>wscript.exe</Command>
+      <Arguments>//B //NoLogo "{vbs_path}"</Arguments>
       <WorkingDirectory>{workspace}</WorkingDirectory>
     </Exec>
   </Actions>
