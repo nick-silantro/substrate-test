@@ -2,8 +2,8 @@
 """
 Substrate semantic search module.
 
-Provides embedding generation, storage, and search using fastembed (local model)
-and sqlite-vec (SQLite extension). No API keys required.
+Provides embedding generation, storage, and search using a local ONNX model
+(onnxruntime + tokenizers) and sqlite-vec (SQLite extension). No API keys required.
 
 Graceful degradation: if the venv isn't set up, all functions silently no-op.
 Call is_search_available() to check before operations that need search.
@@ -47,18 +47,62 @@ if _venv_site:
 
 # Try importing search dependencies
 try:
+    import numpy as _np
+    import onnxruntime as _ort
     import sqlite_vec
-    from fastembed import TextEmbedding
+    from tokenizers import Tokenizer as _Tokenizer
+    from huggingface_hub import hf_hub_download as _hf_download
     SEARCH_AVAILABLE = True
 except ImportError:
     SEARCH_AVAILABLE = False
 
 # Embedding model config
+# Uses the ONNX version of BAAI/bge-small-en-v1.5 hosted by Qdrant on HuggingFace.
+# This avoids fastembed's py-rust-stemmers dependency, which lacks wheels for
+# newer Python versions (3.14+). onnxruntime and tokenizers have timely wheel releases.
+_HF_ONNX_REPO = "Qdrant/fast-bge-small-en-v1.5"
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384
 
 # Cached model singleton
 _model = None
+
+
+class _TextEmbedding:
+    """Minimal ONNX sentence embedder — same interface as fastembed.TextEmbedding."""
+
+    def __init__(self, model_name: str, cache_dir: str):
+        local_dir = os.path.join(cache_dir, _HF_ONNX_REPO.replace("/", "--"))
+        os.makedirs(local_dir, exist_ok=True)
+
+        tok_path = _hf_download(_HF_ONNX_REPO, "tokenizer.json", local_dir=local_dir)
+        try:
+            mdl_path = _hf_download(_HF_ONNX_REPO, "model_optimized.onnx", local_dir=local_dir)
+        except Exception:
+            mdl_path = _hf_download(_HF_ONNX_REPO, "model.onnx", local_dir=local_dir)
+
+        self._tok = _Tokenizer.from_file(tok_path)
+        self._tok.enable_padding(pad_id=0, pad_token="[PAD]")
+        self._tok.enable_truncation(max_length=512)
+
+        self._sess = _ort.InferenceSession(mdl_path, providers=["CPUExecutionProvider"])
+        self._input_names = {inp.name for inp in self._sess.get_inputs()}
+
+    def embed(self, texts):
+        encoded = self._tok.encode_batch(texts)
+        ids  = _np.array([e.ids            for e in encoded], dtype=_np.int64)
+        mask = _np.array([e.attention_mask for e in encoded], dtype=_np.int64)
+
+        feed = {"input_ids": ids, "attention_mask": mask}
+        if "token_type_ids" in self._input_names:
+            feed["token_type_ids"] = _np.zeros_like(ids, dtype=_np.int64)
+
+        out = self._sess.run(None, feed)[0]  # (batch, seq_len, dim)
+
+        # Mean pool over non-padding tokens, then L2 normalize
+        m = mask[:, :, None].astype(_np.float32)
+        emb = (out * m).sum(1) / m.sum(1).clip(1e-9)
+        return emb / _np.linalg.norm(emb, axis=1, keepdims=True).clip(1e-9)
 
 
 def is_search_available():
@@ -71,7 +115,7 @@ def _get_model():
     global _model
     if _model is None:
         os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
-        _model = TextEmbedding(MODEL_NAME, cache_dir=MODEL_CACHE_PATH)
+        _model = _TextEmbedding(MODEL_NAME, MODEL_CACHE_PATH)
     return _model
 
 

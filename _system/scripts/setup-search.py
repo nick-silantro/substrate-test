@@ -2,8 +2,9 @@
 """
 Set up semantic search for Substrate.
 
-Creates a managed venv at _system/venv/, installs sqlite-vec and fastembed,
-downloads the embedding model, and verifies everything works.
+Creates a managed venv at _system/venv/, installs sqlite-vec and the
+embedding stack (onnxruntime + tokenizers + huggingface-hub + numpy),
+downloads the ONNX model, and verifies everything works.
 
 Usage: python3 _system/scripts/setup-search.py
 
@@ -27,9 +28,12 @@ else:
     VENV_PIP = os.path.join(VENV_PATH, "bin", "pip")
     VENV_PYTHON = os.path.join(VENV_PATH, "bin", "python3")
 
-PACKAGES = ["sqlite-vec", "fastembed"]
+# sqlite-vec: vector extension for SQLite (always required)
+# onnxruntime + tokenizers + huggingface-hub + numpy: embedding stack
+# All have pre-built binary wheels for Python 3.11+ on Mac, Linux, Windows.
+PACKAGES = ["sqlite-vec", "onnxruntime", "tokenizers", "huggingface-hub", "numpy"]
 
-_fastembed_available = True
+_search_available = True
 
 
 def create_venv():
@@ -45,23 +49,19 @@ def create_venv():
 
 def install_packages():
     """Install required packages into the venv."""
-    global _fastembed_available
+    global _search_available
+    search_pkgs = {"onnxruntime", "tokenizers", "huggingface-hub", "numpy"}
     for pkg in PACKAGES:
         print(f"  Installing {pkg}...")
-        # On Windows, request binary-only for fastembed to avoid triggering
-        # a Rust/MSVC source build that requires Visual C++ Build Tools.
-        extra = ["--only-binary", ":all:"] if (pkg == "fastembed" and sys.platform == "win32") else []
         result = subprocess.run(
-            [VENV_PIP, "install", pkg] + extra,
+            [VENV_PIP, "install", pkg],
             capture_output=True, text=True
         )
         if result.returncode != 0:
-            if pkg == "fastembed":
-                print(f"  Warning: fastembed install failed — semantic search will not be available.")
-                print(f"  On Windows, Visual C++ Build Tools are required to build from source.")
-                print(f"  Install them from https://visualstudio.microsoft.com/visual-cpp-build-tools/")
-                print(f"  then run: substrate search setup")
-                _fastembed_available = False
+            if pkg in search_pkgs:
+                print(f"  Warning: {pkg} install failed — semantic search will not be available.")
+                print(f"  (Run 'substrate search setup' to retry after fixing the issue.)")
+                _search_available = False
             else:
                 print(f"  ERROR installing {pkg}:")
                 print(result.stderr)
@@ -75,11 +75,12 @@ def install_packages():
 
 def verify_imports():
     """Verify that the installed packages can be imported."""
-    if not _fastembed_available:
+    if not _search_available:
         return
     print("  Verifying imports...")
     result = subprocess.run(
-        [VENV_PYTHON, "-c", "import sqlite_vec; from fastembed import TextEmbedding; print('OK')"],
+        [VENV_PYTHON, "-c",
+         "import sqlite_vec; import onnxruntime; from tokenizers import Tokenizer; import numpy; print('OK')"],
         capture_output=True, text=True
     )
     if result.returncode != 0 or "OK" not in result.stdout:
@@ -112,22 +113,50 @@ print('OK')
 
 
 def download_model():
-    """Pre-download the embedding model so first search isn't slow."""
-    if not _fastembed_available:
+    """Pre-download the ONNX embedding model so first search isn't slow."""
+    if not _search_available:
         return
-    print("  Downloading embedding model (BAAI/bge-small-en-v1.5)...")
+    print("  Downloading ONNX embedding model (Qdrant/fast-bge-small-en-v1.5)...")
     print("  This may take a minute on first run (~50MB download).")
-    # Pass cache path via env var — embedding it directly in the -c string causes
-    # SyntaxError on Windows because backslashes become invalid unicode escapes (\U...).
+    # Pass cache path via env var — embedding Windows paths directly in a -c string
+    # causes SyntaxError because backslashes are parsed as unicode escapes (\U...).
     result = subprocess.run(
         [VENV_PYTHON, "-c", """
-import os
+import os, numpy as np, onnxruntime as ort
+from tokenizers import Tokenizer
+from huggingface_hub import hf_hub_download
+
 cache_dir = os.environ["SUBSTRATE_MODEL_CACHE"]
 os.makedirs(cache_dir, exist_ok=True)
-from fastembed import TextEmbedding
-model = TextEmbedding("BAAI/bge-small-en-v1.5", cache_dir=cache_dir)
-embeddings = list(model.embed(["test"]))
-print(f"OK dim={len(embeddings[0])}")
+HF_REPO = "Qdrant/fast-bge-small-en-v1.5"
+local_dir = os.path.join(cache_dir, HF_REPO.replace("/", "--"))
+os.makedirs(local_dir, exist_ok=True)
+
+tok_path = hf_hub_download(HF_REPO, "tokenizer.json", local_dir=local_dir)
+try:
+    mdl_path = hf_hub_download(HF_REPO, "model_optimized.onnx", local_dir=local_dir)
+except Exception:
+    mdl_path = hf_hub_download(HF_REPO, "model.onnx", local_dir=local_dir)
+
+tok = Tokenizer.from_file(tok_path)
+tok.enable_padding(pad_id=0, pad_token="[PAD]")
+tok.enable_truncation(max_length=512)
+
+sess = ort.InferenceSession(mdl_path, providers=["CPUExecutionProvider"])
+inp_names = {i.name for i in sess.get_inputs()}
+
+enc = tok.encode_batch(["test"])
+ids = np.array([e.ids for e in enc], dtype=np.int64)
+mask = np.array([e.attention_mask for e in enc], dtype=np.int64)
+feed = {"input_ids": ids, "attention_mask": mask}
+if "token_type_ids" in inp_names:
+    feed["token_type_ids"] = np.zeros_like(ids)
+
+out = sess.run(None, feed)[0]
+m = mask[:, :, None].astype(np.float32)
+emb = (out * m).sum(1) / m.sum(1).clip(1e-9)
+emb = emb / np.linalg.norm(emb, axis=1, keepdims=True).clip(1e-9)
+print(f"OK dim={emb.shape[1]}")
 """],
         capture_output=True, text=True,
         timeout=300,  # 5 minute timeout for model download
@@ -138,7 +167,6 @@ print(f"OK dim={len(embeddings[0])}")
         print(result.stderr)
         sys.exit(1)
 
-    # Extract dimension info
     for line in result.stdout.strip().split('\n'):
         if line.startswith("OK"):
             print(f"  Model ready. {line[3:]}")
@@ -163,12 +191,12 @@ def main():
     download_model()
 
     print("\n" + "=" * 50)
-    if _fastembed_available:
+    if _search_available:
         print("Semantic search is ready!")
     else:
         print("Search venv ready (semantic search unavailable — see warning above).")
     print(f"  Venv: {VENV_PATH}")
-    if _fastembed_available:
+    if _search_available:
         print(f"  Next: python3 _system/scripts/rebuild-embeddings.py")
         print(f"  Then: python3 _system/scripts/query.py search \"your query\"")
 
