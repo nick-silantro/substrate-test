@@ -270,7 +270,18 @@ def _install_cli_windows(cli_src: Path) -> None:
                 winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ,
                                   f"{s};{cur}" if cur else s)
                 _info("Added ~/.local/bin to user PATH")
-        _ok("User PATH updated (restart terminal for effect)")
+        # Broadcast WM_SETTINGCHANGE so Explorer and running apps reload the
+        # environment from the registry immediately — without this, apps
+        # launched from the taskbar/Start menu won't see the new PATH until
+        # the user logs out and back in.
+        try:
+            import ctypes
+            HWND_BROADCAST = 0xFFFF
+            WM_SETTINGCHANGE = 0x001A
+            ctypes.windll.user32.SendMessageW(HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment")
+        except Exception:
+            pass  # Non-fatal — PATH is in the registry, will apply on next login
+        _ok("User PATH updated")
     except Exception as e:
         _warn(f"Could not update PATH automatically: {e}")
         _warn(f"Add to your PATH manually: {local_bin}")
@@ -378,8 +389,7 @@ def main() -> None:
     _info(f"Engine:     {args.engine}")
     print()
     if sys.platform == "win32":
-        _info("Close Claude Code completely and reopen it — the substrate command will then be on your PATH.")
-        _info("(A new session in the same window is not enough; the app itself must restart.)")
+        _info("Close Claude Code completely and reopen it — the substrate command will be on your PATH.")
         print()
     _info("Open your workspace in Claude Code to get started:")
     print()
