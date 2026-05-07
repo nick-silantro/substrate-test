@@ -529,20 +529,24 @@ def main():
             os.remove(sidecar)
 
     # Atomic swap: live DB only changes when the full build is on disk.
+    # Windows AV scanners can briefly hold a lock on newly created files —
+    # allow up to 60s on Windows vs 10s on Unix.
     import time as _time
-    for attempt in range(10):
+    _max_attempts = 30 if sys.platform == "win32" else 10
+    _sleep_secs   = 2.0 if sys.platform == "win32" else 1.0
+    for attempt in range(_max_attempts):
         try:
             os.replace(tmp_path, DB_PATH)
             break
         except PermissionError:
-            if attempt == 9:
+            if attempt == _max_attempts - 1:
                 print(
                     "\nError: substrate.db is locked by another process.\n"
                     "Close any other Substrate processes (entity-watcher, Surface, Relay)\n"
                     "and run:  substrate index rebuild"
                 )
                 sys.exit(1)
-            _time.sleep(1.0)
+            _time.sleep(_sleep_secs)
     print(f"\nDatabase written to: {DB_PATH}")
 
 

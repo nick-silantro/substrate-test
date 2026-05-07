@@ -117,17 +117,21 @@ def download_model():
         return
     print("  Downloading embedding model (BAAI/bge-small-en-v1.5)...")
     print("  This may take a minute on first run (~50MB download).")
+    # Pass cache path via env var — embedding it directly in the -c string causes
+    # SyntaxError on Windows because backslashes become invalid unicode escapes (\U...).
     result = subprocess.run(
-        [VENV_PYTHON, "-c", f"""
+        [VENV_PYTHON, "-c", """
 import os
-os.makedirs("{MODEL_CACHE_PATH}", exist_ok=True)
+cache_dir = os.environ["SUBSTRATE_MODEL_CACHE"]
+os.makedirs(cache_dir, exist_ok=True)
 from fastembed import TextEmbedding
-model = TextEmbedding("BAAI/bge-small-en-v1.5", cache_dir="{MODEL_CACHE_PATH}")
+model = TextEmbedding("BAAI/bge-small-en-v1.5", cache_dir=cache_dir)
 embeddings = list(model.embed(["test"]))
-print(f"OK dim={{len(embeddings[0])}}")
+print(f"OK dim={len(embeddings[0])}")
 """],
         capture_output=True, text=True,
-        timeout=300  # 5 minute timeout for model download
+        timeout=300,  # 5 minute timeout for model download
+        env={**os.environ, "SUBSTRATE_MODEL_CACHE": MODEL_CACHE_PATH},
     )
     if result.returncode != 0:
         print("  ERROR: Model download/test failed.")
