@@ -177,6 +177,15 @@ print(f"OK dim={emb.shape[1]}")
     for line in result.stdout.strip().split('\n'):
         if line.startswith("OK"):
             print(f"  Model ready. {line[3:]}")
+
+    # Write marker so guided-setup agents can confirm search is ready
+    # without needing to parse output or check internal cache paths.
+    marker = os.path.join(MODEL_CACHE_PATH, ".search-ready")
+    try:
+        os.makedirs(MODEL_CACHE_PATH, exist_ok=True)
+        open(marker, "w").close()
+    except Exception:
+        pass
             break
 
 
