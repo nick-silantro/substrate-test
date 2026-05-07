@@ -364,6 +364,8 @@ def _contains(path: Path, text: str) -> bool:
 def main() -> None:
     if sys.platform == "win32":
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        os.environ["PYTHONUTF8"] = "1"  # propagate UTF-8 to all child processes
     args = _parse_args()
     _check_prerequisites()
     cli_src = _install_engine(args.engine, args.repo, args.tag)
