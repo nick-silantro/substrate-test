@@ -1607,9 +1607,9 @@ def cmd_init(rest: list[str]) -> None:
             pass
 
     if not args.no_services:
+        _setup_venv(target)
         print("\nInstalling background services...")
         _install_services(target, ep, reinstall=args.reinit)
-        _setup_venv(target)
 
     # Set up semantic search (venv + fastembed + model). Model is cached at
     # ~/.substrate/model-cache/ so this is only slow on the very first install.

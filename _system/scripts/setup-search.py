@@ -29,6 +29,8 @@ else:
 
 PACKAGES = ["sqlite-vec", "fastembed"]
 
+_fastembed_available = True
+
 
 def create_venv():
     """Create the managed venv if it doesn't exist."""
@@ -43,17 +45,28 @@ def create_venv():
 
 def install_packages():
     """Install required packages into the venv."""
+    global _fastembed_available
     for pkg in PACKAGES:
         print(f"  Installing {pkg}...")
+        # On Windows, request binary-only for fastembed to avoid triggering
+        # a Rust/MSVC source build that requires Visual C++ Build Tools.
+        extra = ["--only-binary", ":all:"] if (pkg == "fastembed" and sys.platform == "win32") else []
         result = subprocess.run(
-            [VENV_PIP, "install", pkg],
+            [VENV_PIP, "install", pkg] + extra,
             capture_output=True, text=True
         )
         if result.returncode != 0:
-            print(f"  ERROR installing {pkg}:")
-            print(result.stderr)
-            sys.exit(1)
-        # Check if it was already installed
+            if pkg == "fastembed":
+                print(f"  Warning: fastembed install failed — semantic search will not be available.")
+                print(f"  On Windows, Visual C++ Build Tools are required to build from source.")
+                print(f"  Install them from https://visualstudio.microsoft.com/visual-cpp-build-tools/")
+                print(f"  then run: substrate search setup")
+                _fastembed_available = False
+            else:
+                print(f"  ERROR installing {pkg}:")
+                print(result.stderr)
+                sys.exit(1)
+            continue
         if "already satisfied" in result.stdout.lower():
             print(f"  {pkg} already installed.")
         else:
@@ -62,6 +75,8 @@ def install_packages():
 
 def verify_imports():
     """Verify that the installed packages can be imported."""
+    if not _fastembed_available:
+        return
     print("  Verifying imports...")
     result = subprocess.run(
         [VENV_PYTHON, "-c", "import sqlite_vec; from fastembed import TextEmbedding; print('OK')"],
@@ -98,6 +113,8 @@ print('OK')
 
 def download_model():
     """Pre-download the embedding model so first search isn't slow."""
+    if not _fastembed_available:
+        return
     print("  Downloading embedding model (BAAI/bge-small-en-v1.5)...")
     print("  This may take a minute on first run (~50MB download).")
     result = subprocess.run(
@@ -142,10 +159,14 @@ def main():
     download_model()
 
     print("\n" + "=" * 50)
-    print("Semantic search is ready!")
+    if _fastembed_available:
+        print("Semantic search is ready!")
+    else:
+        print("Search venv ready (semantic search unavailable — see warning above).")
     print(f"  Venv: {VENV_PATH}")
-    print(f"  Next: python3 _system/scripts/rebuild-embeddings.py")
-    print(f"  Then: python3 _system/scripts/query.py search \"your query\"")
+    if _fastembed_available:
+        print(f"  Next: python3 _system/scripts/rebuild-embeddings.py")
+        print(f"  Then: python3 _system/scripts/query.py search \"your query\"")
 
 
 if __name__ == "__main__":
