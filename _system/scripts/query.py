@@ -817,9 +817,9 @@ def cmd_search(args):
     filter_label = f" (type: {type_filter})" if type_filter else ""
     print(f'Search: "{query_text}"{filter_label}')
     print(f"{'='*80}")
+    _MAX_RRF_SCORE = 2.0 / (60 + 1)  # both sources at rank 1: 1/(60+1) + 1/(60+1)
     for i, r in enumerate(results, 1):
-        # Normalize RRF score to a display bar (max theoretical RRF score ≈ 2/61 ≈ 0.033)
-        bar_width = min(20, int(r["score"] / 0.033 * 20))
+        bar_width = min(20, int(r["score"] / _MAX_RRF_SCORE * 20))
         bar = "█" * bar_width
         desc = (r["description"] or "")[:60]
         if desc == "[awaiting context]":

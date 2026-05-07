@@ -17,6 +17,7 @@ Usage from other scripts:
 """
 
 import os
+import re
 import sys
 import struct
 import sqlite3
@@ -173,7 +174,6 @@ def _fts_search_raw(conn, query_text, limit, type_filter=None):
     where fts_rank is 1-indexed position in BM25 result order (1 = best).
     Returns [] on empty/short query or missing FTS table (old workspaces).
     """
-    import re
     cleaned = re.sub(r'["\*\(\)\:\^\{\}\[\]]', ' ', query_text).strip()
     words = [w for w in cleaned.split() if len(w) >= 2]
     if not words:
