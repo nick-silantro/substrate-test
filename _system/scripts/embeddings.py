@@ -61,7 +61,7 @@ except ImportError:
 # Uses the ONNX version of BAAI/bge-small-en-v1.5 hosted by Qdrant on HuggingFace.
 # This avoids fastembed's py-rust-stemmers dependency, which lacks wheels for
 # newer Python versions (3.14+). onnxruntime and tokenizers have timely wheel releases.
-_HF_ONNX_REPO = "Qdrant/fast-bge-small-en-v1.5"
+_HF_ONNX_REPO = "Qdrant/bge-small-en-v1.5-onnx-Q"
 MODEL_NAME = "BAAI/bge-small-en-v1.5"
 EMBEDDING_DIM = 384
 
