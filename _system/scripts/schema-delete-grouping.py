@@ -103,7 +103,7 @@ def main():
         fail("Field 'name' is required")
 
     try:
-        with open(TYPES_YAML) as f:
+        with open(TYPES_YAML, encoding="utf-8") as f:
             existing = yaml.safe_load(f)
     except Exception as e:
         fail(f"Cannot read types.yaml: {e}")
@@ -121,7 +121,7 @@ def main():
         )
 
     try:
-        content = open(TYPES_YAML).read()
+        content = open(TYPES_YAML, encoding="utf-8").read()
     except Exception as e:
         fail(f"Cannot read types.yaml: {e}")
 
@@ -130,7 +130,7 @@ def main():
         fail(f"Grouping '{name}' found in YAML parse but not in text — file may be malformed")
 
     try:
-        with open(TYPES_YAML, "w") as f:
+        with open(TYPES_YAML, "w", encoding="utf-8") as f:
             f.write(content)
     except Exception as e:
         fail(f"Failed to write types.yaml: {e}")

@@ -1432,12 +1432,12 @@ def _check_for_updates_xml(vbs_path: Path, workspace: Path, logs_dir: Path) -> s
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Substrate update checker — runs every 30 minutes</Description>
+    <Description>Substrate update checker — runs every 15 minutes</Description>
   </RegistrationInfo>
   <Triggers>
     <TimeTrigger>
       <Repetition>
-        <Interval>PT30M</Interval>
+        <Interval>PT15M</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
       <StartBoundary>2000-01-01T00:00:00</StartBoundary>
@@ -2329,6 +2329,10 @@ Environment:
 
 
 def main() -> None:
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
     args = sys.argv[1:]
 
     if not args or args[0] in ("-h", "--help", "help"):

@@ -100,7 +100,7 @@ def safe_write(path, create=False):
             raise TimeoutError(f"safe_write: could not acquire lock within {LOCK_TIMEOUT_SECONDS}s")
         try:
             if os.path.exists(path):
-                with open(path, "r") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     content = f.read()
             elif create:
                 content = ""
@@ -139,7 +139,7 @@ def safe_write(path, create=False):
                 signal.signal(signal.SIGALRM, prev_handler)
 
             if os.path.exists(path):
-                with open(path, "r") as f:
+                with open(path, "r", encoding="utf-8") as f:
                     content = f.read()
             elif create:
                 content = ""
@@ -171,7 +171,7 @@ def _atomic_write(path, content):
     dir_path = os.path.dirname(path) or "."
     fd, tmp_path = tempfile.mkstemp(dir=dir_path, prefix=".tmp_", suffix=".yaml")
     try:
-        with os.fdopen(fd, "w") as f:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
         os.replace(tmp_path, path)
     except BaseException:

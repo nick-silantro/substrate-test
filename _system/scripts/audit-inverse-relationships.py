@@ -37,7 +37,7 @@ def load_all_meta():
     pattern = os.path.join(SUBSTRATE_PATH, "entities", "**", "meta.yaml")
     for path in glob.glob(pattern, recursive=True):
         try:
-            with open(path, 'r') as f:
+            with open(path, 'r', encoding="utf-8") as f:
                 content = f.read()
             # Extract ID
             id_match = re.search(r'^id:\s*(.+)$', content, re.MULTILINE)

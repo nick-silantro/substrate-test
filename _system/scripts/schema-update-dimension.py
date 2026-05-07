@@ -178,7 +178,7 @@ def main():
 
     # Load schema to validate existence and cross-check default/values
     try:
-        with open(ATTRIBUTES_YAML) as f:
+        with open(ATTRIBUTES_YAML, encoding="utf-8") as f:
             existing = yaml.safe_load(f)
     except Exception as e:
         fail(f"Cannot read attributes.yaml: {e}")
@@ -202,7 +202,7 @@ def main():
         )
 
     try:
-        content = open(ATTRIBUTES_YAML).read()
+        content = open(ATTRIBUTES_YAML, encoding="utf-8").read()
     except Exception as e:
         fail(f"Cannot read attributes.yaml: {e}")
 
@@ -212,7 +212,7 @@ def main():
         fail(f"Dimension '{name}' found in schema but its block was not found in text — file may be malformed")
 
     try:
-        with open(ATTRIBUTES_YAML, "w") as f:
+        with open(ATTRIBUTES_YAML, "w", encoding="utf-8") as f:
             f.write(content)
     except Exception as e:
         fail(f"Failed to write attributes.yaml: {e}")

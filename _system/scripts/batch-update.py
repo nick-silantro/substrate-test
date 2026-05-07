@@ -66,7 +66,7 @@ schema = load_schema(SUBSTRATE_PATH)
 # ---------------------------------------------------------------------------
 
 def load_manifest(path):
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding="utf-8") as f:
         content = f.read()
     if path.endswith('.json'):
         return json.loads(content)

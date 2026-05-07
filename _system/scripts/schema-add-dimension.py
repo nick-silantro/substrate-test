@@ -162,7 +162,7 @@ def main():
 
     # Load existing schema to check for name conflicts
     try:
-        with open(ATTRIBUTES_YAML) as f:
+        with open(ATTRIBUTES_YAML, encoding="utf-8") as f:
             existing = yaml.safe_load(f)
     except Exception as e:
         fail(f"Cannot read attributes.yaml: {e}")
@@ -178,14 +178,14 @@ def main():
     # dimensions: is always the last top-level section in attributes.yaml, so
     # a simple append is safe. We ensure exactly one blank line between entries.
     try:
-        with open(ATTRIBUTES_YAML, "r") as f:
+        with open(ATTRIBUTES_YAML, "r", encoding="utf-8") as f:
             content = f.read()
 
         # Normalize: strip trailing whitespace/newlines, then append with blank separator
         content = content.rstrip()
         updated = content + "\n\n" + new_block + "\n"
 
-        with open(ATTRIBUTES_YAML, "w") as f:
+        with open(ATTRIBUTES_YAML, "w", encoding="utf-8") as f:
             f.write(updated)
     except Exception as e:
         fail(f"Failed to write attributes.yaml: {e}")

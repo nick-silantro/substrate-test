@@ -101,8 +101,8 @@ def _create_context_doc(name, description, filename, content, startup_for, conte
         "created": now,
         "last_edited": now,
     }
-    (entity_dir / "meta.yaml").write_text(dump_entity_meta(meta))
-    (entity_dir / filename).write_text(content)
+    (entity_dir / "meta.yaml").write_text(dump_entity_meta(meta), encoding="utf-8")
+    (entity_dir / filename).write_text(content, encoding="utf-8")
 
     print(f"  Created {name}")
     return entity_id
@@ -194,7 +194,7 @@ def main():
         print(f"onboard: input file not found: {input_path}", file=sys.stderr)
         sys.exit(1)
 
-    with open(input_path) as f:
+    with open(input_path, encoding="utf-8") as f:
         data = json.load(f)
 
     user_data = data.get("user", {})

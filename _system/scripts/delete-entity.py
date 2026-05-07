@@ -445,7 +445,7 @@ def purge_expired(days=30, dry_run=False):
         meta_path = os.path.join(SUBSTRATE_PATH, epath, "meta.yaml")
         if not os.path.exists(meta_path):
             continue
-        with open(meta_path, 'r') as f:
+        with open(meta_path, 'r', encoding="utf-8") as f:
             for line in f:
                 if line.startswith("archived_at:"):
                     archived_at = line.split(":", 1)[1].strip()

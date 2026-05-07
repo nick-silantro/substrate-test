@@ -54,7 +54,7 @@ def check_sqlite_vs_disk(workspace, conn):
     disk_entities = {}
     for meta_file in entities_dir.rglob("meta.yaml"):
         try:
-            with open(meta_file) as f:
+            with open(meta_file, encoding="utf-8") as f:
                 meta = yaml.safe_load(f)
             if meta and isinstance(meta, dict) and 'id' in meta:
                 disk_entities[meta['id']] = str(meta_file)
@@ -250,7 +250,7 @@ def check_recurrence_drift(conn, workspace):
             continue
 
         try:
-            with open(meta_path) as f:
+            with open(meta_path, encoding="utf-8") as f:
                 meta = yaml.safe_load(f)
         except Exception:
             continue

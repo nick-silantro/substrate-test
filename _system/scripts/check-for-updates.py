@@ -48,7 +48,7 @@ def _fire_heartbeat() -> None:
         config_path = Path("~/.substrate/config.yaml").expanduser()
         data = {}
         if config_path.exists():
-            data = yaml.safe_load(config_path.read_text()) or {}
+            data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
         machine_id = data.get("machine_id")
         if not machine_id:
@@ -64,7 +64,7 @@ def _fire_heartbeat() -> None:
 
         ep = _engine_path()
         version_file = ep / "VERSION"
-        version = version_file.read_text().strip() if version_file.exists() else None
+        version = version_file.read_text(encoding="utf-8").strip() if version_file.exists() else None
         import sys as _sys
         platform = {"darwin": "darwin", "linux": "linux", "win32": "win32"}.get(
             _sys.platform, _sys.platform
@@ -85,7 +85,7 @@ def _fire_heartbeat() -> None:
         urllib.request.urlopen(req, timeout=3)
 
         data["last_heartbeat"] = datetime.now(timezone.utc).isoformat()
-        config_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+        config_path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False), encoding="utf-8")
     except Exception:
         pass
 
@@ -98,7 +98,7 @@ def _engine_path():
     overlay = Path(SUBSTRATE_PATH) / "_system" / "overlay.yaml"
     if overlay.exists():
         import yaml
-        with open(overlay) as f:
+        with open(overlay, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         ep = data.get("engine")
         if ep:
@@ -114,7 +114,7 @@ def _update_channel():
     overlay = Path(SUBSTRATE_PATH) / "_system" / "overlay.yaml"
     if overlay.exists():
         import yaml
-        with open(overlay) as f:
+        with open(overlay, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
         return data.get("update_channel", "main")
     return "main"
@@ -133,7 +133,7 @@ def _read_snooze() -> dict:
         return {}
     try:
         import yaml
-        with open(SNOOZE_FILE) as f:
+        with open(SNOOZE_FILE, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception:
         return {}
@@ -205,7 +205,7 @@ def check_substrate() -> tuple[bool | None, str, str]:
 
         # Version-aware comparison: read VERSION file from local and remote.
         local_version_file = ep / "VERSION"
-        local_version = local_version_file.read_text().strip() if local_version_file.exists() else None
+        local_version = local_version_file.read_text(encoding="utf-8").strip() if local_version_file.exists() else None
 
         remote_result = subprocess.run(
             ["git", "show", f"origin/{channel}:VERSION"],

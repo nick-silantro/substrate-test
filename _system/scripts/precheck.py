@@ -483,7 +483,7 @@ def _query_review_entities(db_path, parent_entity_id, gate=None, performer_type=
         review_reviewer_role = None
         review_phase = None
         if os.path.exists(meta_path):
-            with open(meta_path, "r") as f:
+            with open(meta_path, "r", encoding="utf-8") as f:
                 for line in f:
                     stripped = line.strip()
                     if stripped.startswith("gate:"):
@@ -677,7 +677,7 @@ def _has_doc_review_approval(entity_folder):
 
     for rf in review_files:
         try:
-            with open(rf, "r") as f:
+            with open(rf, "r", encoding="utf-8") as f:
                 content = f.read()
         except OSError:
             continue
@@ -710,7 +710,7 @@ def _has_user_review_section(entity_folder):
         return None
 
     for review_file in review_files:
-        with open(review_file, "r") as f:
+        with open(review_file, "r", encoding="utf-8") as f:
             content = f.read()
         lines = content.splitlines()
         in_section = False
@@ -749,7 +749,7 @@ def _has_user_check_approval(entity_folder):
 
     for cf in check_files:
         try:
-            with open(cf, "r") as f:
+            with open(cf, "r", encoding="utf-8") as f:
                 content = f.read()
         except OSError:
             continue
@@ -808,7 +808,7 @@ def _has_bsc_approval(entity_folder):
 
     for bf in bsc_files:
         try:
-            with open(bf, "r") as f:
+            with open(bf, "r", encoding="utf-8") as f:
                 content = f.read()
         except OSError:
             continue
@@ -928,7 +928,7 @@ def check_ready_gate(schema, entity_id, entity_type, life_stage_value,
         meta_path = os.path.join(entity_folder, "meta.yaml")
         user_check_required = False  # default if absent
         if os.path.exists(meta_path):
-            with open(meta_path, "r") as f:
+            with open(meta_path, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip().startswith("user_check_required:"):
                         val = line.strip().split(":", 1)[1].strip().lower()
@@ -1316,7 +1316,7 @@ def check_done_working_gate(schema, entity_id, entity_type, life_stage_value,
     meta_path = os.path.join(entity_folder, "meta.yaml")
     user_review_required = True  # schema default is true
     if os.path.exists(meta_path):
-        with open(meta_path, "r") as f:
+        with open(meta_path, "r", encoding="utf-8") as f:
             for line in f:
                 if line.strip().startswith("user_review_required:"):
                     val = line.strip().split(":", 1)[1].strip().lower()

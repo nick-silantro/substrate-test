@@ -886,7 +886,7 @@ def cmd_changelog(args):
             print("Building changelog index from JSONL files...")
             count = 0
             for log_path in log_files:
-                with open(log_path, "r") as f:
+                with open(log_path, "r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
                         if not line:

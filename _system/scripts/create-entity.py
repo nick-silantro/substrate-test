@@ -483,7 +483,7 @@ def update_target_meta(target_id, inverse_rel, entity_id):
         print(f"  Warning: Target meta.yaml not found: {meta_path}")
         return
 
-    with open(meta_path, 'r') as f:
+    with open(meta_path, 'r', encoding="utf-8") as f:
         content = f.read()
 
     # Precise idempotency: check if entity_id is already listed under this
@@ -531,7 +531,7 @@ def update_target_meta(target_id, inverse_rel, entity_id):
     with safe_write(meta_path) as (_, write):
         write('\n'.join(new_lines) + '\n')
         # Post-write verification: confirm the inverse was actually persisted
-        with open(meta_path, 'r') as f:
+        with open(meta_path, 'r', encoding="utf-8") as f:
             written = f.read()
         if f"- {entity_id}" not in written:
             print(f"  ERROR: Inverse write verification failed — {inverse_rel} → {entity_id} not found in {meta_path} after write")
@@ -822,7 +822,7 @@ def main():
                 existing_gate = None
                 existing_phase = None
                 if os.path.exists(existing_meta):
-                    with open(existing_meta, "r") as f:
+                    with open(existing_meta, "r", encoding="utf-8") as f:
                         for line in f:
                             stripped = line.strip()
                             if stripped.startswith("gate:"):
@@ -834,7 +834,7 @@ def main():
                 if existing_gate == review_gate and existing_phase != "retired":
                     existing_verdict = None
                     if os.path.exists(existing_meta):
-                        with open(existing_meta, "r") as f:
+                        with open(existing_meta, "r", encoding="utf-8") as f:
                             for line in f:
                                 if line.strip().startswith("verdict:"):
                                     existing_verdict = line.strip().split(":", 1)[1].strip().strip('"').strip("'")

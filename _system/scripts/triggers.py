@@ -52,7 +52,7 @@ def get_engine_path(substrate_path: str) -> str:
         return os.path.expanduser(env_path)
     overlay_path = os.path.join(substrate_path, "_system", "overlay.yaml")
     if os.path.exists(overlay_path):
-        with open(overlay_path) as f:
+        with open(overlay_path, encoding="utf-8") as f:
             overlay = yaml.safe_load(f) or {}
         engine = overlay.get("engine")
         if engine:

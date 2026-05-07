@@ -802,7 +802,7 @@ def _merge_user_schema(types_data, attributes_data, relationships_data, user_sch
         path = os.path.join(user_schema_dir, filename)
         if not os.path.exists(path):
             return None
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
 
     user_types = _load_user("types.yaml")
@@ -874,7 +874,7 @@ def load_schema(substrate_path=None):
                 f"Engine path: {engine_path}\n"
                 f"Set SUBSTRATE_ENGINE_PATH or run via the substrate CLI."
             )
-        with open(filepath, "r") as f:
+        with open(filepath, "r", encoding="utf-8") as f:
             return yaml.safe_load(f)
 
     types_data = _load("types.yaml")

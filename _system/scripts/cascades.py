@@ -355,7 +355,7 @@ def cascade_on_review_fail(conn, review_entity_id, substrate_path):
     if fail_row:
         fail_meta_path = os.path.join(substrate_path, fail_row[0], "meta.yaml")
         if os.path.exists(fail_meta_path):
-            with open(fail_meta_path, "r") as f:
+            with open(fail_meta_path, "r", encoding="utf-8") as f:
                 for line in f:
                     stripped = line.strip()
                     if stripped.startswith("gate:"):
@@ -404,7 +404,7 @@ def cascade_on_review_fail(conn, review_entity_id, substrate_path):
         sibling_phase = None
         sibling_gate = None
         if os.path.exists(meta_path):
-            with open(meta_path, "r") as f:
+            with open(meta_path, "r", encoding="utf-8") as f:
                 for line in f:
                     stripped = line.strip()
                     if stripped.startswith("verdict:"):

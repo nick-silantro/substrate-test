@@ -144,7 +144,7 @@ def main():
 
     # Load schema to verify existence
     try:
-        with open(RELATIONSHIPS_YAML) as f:
+        with open(RELATIONSHIPS_YAML, encoding="utf-8") as f:
             existing = yaml.safe_load(f)
     except Exception as e:
         fail(f"Cannot read relationships.yaml: {e}")
@@ -162,7 +162,7 @@ def main():
         )
 
     try:
-        content = open(RELATIONSHIPS_YAML).read()
+        content = open(RELATIONSHIPS_YAML, encoding="utf-8").read()
     except Exception as e:
         fail(f"Cannot read relationships.yaml: {e}")
 
@@ -175,7 +175,7 @@ def main():
         )
 
     try:
-        with open(RELATIONSHIPS_YAML, "w") as f:
+        with open(RELATIONSHIPS_YAML, "w", encoding="utf-8") as f:
             f.write(content)
     except Exception as e:
         fail(f"Failed to write relationships.yaml: {e}")

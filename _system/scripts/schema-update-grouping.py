@@ -104,7 +104,7 @@ def main():
 
     # Load schema to verify existence
     try:
-        with open(TYPES_YAML) as f:
+        with open(TYPES_YAML, encoding="utf-8") as f:
             existing = yaml.safe_load(f)
     except Exception as e:
         fail(f"Cannot read types.yaml: {e}")
@@ -113,7 +113,7 @@ def main():
         fail(f"Grouping '{name}' does not exist in schema")
 
     try:
-        content = open(TYPES_YAML).read()
+        content = open(TYPES_YAML, encoding="utf-8").read()
     except Exception as e:
         fail(f"Cannot read types.yaml: {e}")
 
@@ -137,7 +137,7 @@ def main():
         )
 
     try:
-        with open(TYPES_YAML, "w") as f:
+        with open(TYPES_YAML, "w", encoding="utf-8") as f:
             f.write(types_section + updated_groupings)
     except Exception as e:
         fail(f"Failed to write types.yaml: {e}")

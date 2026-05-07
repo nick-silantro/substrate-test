@@ -62,7 +62,7 @@ def get_engine_path():
     """
     overlay_path = os.path.join(SUBSTRATE_PATH, "_system", "overlay.yaml")
     if os.path.exists(overlay_path):
-        with open(overlay_path) as f:
+        with open(overlay_path, encoding="utf-8") as f:
             overlay = yaml.safe_load(f) or {}
         engine = overlay.get("engine")
         if engine:
@@ -94,7 +94,7 @@ def load_entity_docs():
         if not os.path.exists(meta_path):
             continue
 
-        with open(meta_path, "r") as f:
+        with open(meta_path, "r", encoding="utf-8") as f:
             meta = yaml.safe_load(f)
 
         # Deserialize JSON list attributes
@@ -148,7 +148,7 @@ def load_engine_docs():
         if not filename.endswith(".md"):
             continue
         filepath = os.path.join(docs_dir, filename)
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read()
 
         frontmatter = {}
@@ -205,7 +205,7 @@ def load_workspace_docs():
         if not filename.endswith(".md"):
             continue
         filepath = os.path.join(docs_dir, filename)
-        with open(filepath) as f:
+        with open(filepath, encoding="utf-8") as f:
             content = f.read()
 
         frontmatter = {}
@@ -323,7 +323,7 @@ def print_content(docs):
         else:
             for filepath in content_file_paths(doc):
                 try:
-                    with open(filepath, "r") as f:
+                    with open(filepath, "r", encoding="utf-8") as f:
                         print(f.read())
                 except IOError as e:
                     print(f"[Error reading {filepath}: {e}]")

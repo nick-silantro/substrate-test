@@ -165,7 +165,7 @@ def main():
 
     # Load schema to find the type and its grouping
     try:
-        with open(TYPES_YAML) as f:
+        with open(TYPES_YAML, encoding="utf-8") as f:
             existing = yaml.safe_load(f)
     except Exception as e:
         fail(f"Cannot read types.yaml: {e}")
@@ -188,7 +188,7 @@ def main():
 
     # Read file as text for surgical edits
     try:
-        content = open(TYPES_YAML).read()
+        content = open(TYPES_YAML, encoding="utf-8").read()
     except Exception as e:
         fail(f"Cannot read types.yaml: {e}")
 
@@ -202,7 +202,7 @@ def main():
         content = remove_from_types_list(content, grouping, name)
 
     try:
-        with open(TYPES_YAML, "w") as f:
+        with open(TYPES_YAML, "w", encoding="utf-8") as f:
             f.write(content)
     except Exception as e:
         fail(f"Failed to write types.yaml: {e}")

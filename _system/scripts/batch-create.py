@@ -83,7 +83,7 @@ DIM_ORDER = [d for d in schema.dimension_names if d != "meta_status"]
 
 def load_manifest(path):
     """Load YAML or JSON manifest file. Returns parsed dict."""
-    with open(path, 'r') as f:
+    with open(path, 'r', encoding="utf-8") as f:
         content = f.read()
     if path.endswith('.json'):
         return json.loads(content)
@@ -221,7 +221,7 @@ def update_target_meta(target_id, inverse_rel, entity_id, conn):
         write(final_content)
 
     # Post-write verification: confirm the inverse was actually persisted
-    with open(meta_path, 'r') as f:
+    with open(meta_path, 'r', encoding="utf-8") as f:
         written = f.read()
     if f"- {entity_id}" not in written:
         print(f"  ERROR: Inverse write verification failed — {inverse_rel} → {entity_id} not found in {meta_path} after write")

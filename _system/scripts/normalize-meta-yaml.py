@@ -62,7 +62,7 @@ def main():
 
     for path in meta_files:
         scanned += 1
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             original = f.read()
 
         # Parse original first — if it's malformed, skip and report.

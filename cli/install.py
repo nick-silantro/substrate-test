@@ -251,7 +251,10 @@ def _install_cli_windows(cli_src: Path) -> None:
 
     # .bat wrapper so `substrate` works in cmd and PowerShell without .py extension
     bat = local_bin / "substrate.bat"
-    bat.write_text(f'@echo off\n"{sys.executable}" "{cli_src}" %*\n', encoding="utf-8")
+    bat.write_text(
+        f'@echo off\nset PYTHONUTF8=1\n"{sys.executable}" "{cli_src}" %*\n',
+        encoding="utf-8",
+    )
 
     # Bash shim so `substrate` works in Git Bash (used by Claude Code tool calls).
     # Bash cannot execute .bat files, so a separate shebang script is required.
@@ -259,6 +262,7 @@ def _install_cli_windows(cli_src: Path) -> None:
     bash_shim.write_text(
         "#!/usr/bin/env python\n"
         "import subprocess, sys, os\n"
+        "os.environ['PYTHONUTF8'] = '1'\n"
         "cli = os.path.join(os.path.expanduser('~'), '.substrate', 'engine', 'cli', 'substrate')\n"
         "sys.exit(subprocess.call([sys.executable, cli] + sys.argv[1:]))\n",
         encoding="utf-8",
@@ -395,6 +399,7 @@ def main() -> None:
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
         os.environ["PYTHONUTF8"] = "1"  # propagate UTF-8 to all child processes
     args = _parse_args()
+    inside_claude = _is_inside_claude_code()
     _check_prerequisites()
     cli_src = _install_engine(args.engine, args.repo, args.tag)
     _install_cli(cli_src)
@@ -405,18 +410,19 @@ def main() -> None:
     _info(f"Workspace:  {args.instance}")
     _info(f"Engine:     {args.engine}")
     print()
-    if sys.platform == "win32":
-        _info("Close Claude Code completely and reopen it — the substrate command will be on your PATH.")
+    if not inside_claude:
+        if sys.platform == "win32":
+            _info("Close Claude Code completely and reopen it — the substrate command will be on your PATH.")
+            print()
+        _info("Open your workspace in Claude Code to get started:")
         print()
-    _info("Open your workspace in Claude Code to get started:")
-    print()
-    if sys.platform == "win32":
-        print(f"    cd {args.instance}")
-        print( "    claude")
-    else:
-        print(f"    cd {args.instance} && claude")
-    print()
-    _info("Claude will load your orientation automatically from CLAUDE.md.")
+        if sys.platform == "win32":
+            print(f"    cd {args.instance}")
+            print( "    claude")
+        else:
+            print(f"    cd {args.instance} && claude")
+        print()
+        _info("Claude will load your orientation automatically from CLAUDE.md.")
 
 
 if __name__ == "__main__":

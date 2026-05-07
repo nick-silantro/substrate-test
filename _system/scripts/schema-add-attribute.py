@@ -131,7 +131,7 @@ def main():
 
     # Check conflicts in engine schema
     try:
-        with open(ENGINE_ATTRIBUTES_YAML) as f:
+        with open(ENGINE_ATTRIBUTES_YAML, encoding="utf-8") as f:
             engine_existing = yaml.safe_load(f)
     except Exception as e:
         fail(f"Cannot read engine attributes.yaml: {e}")
@@ -144,7 +144,7 @@ def main():
     user_data = {}
     if USER_ATTRIBUTES_YAML.exists():
         try:
-            with open(USER_ATTRIBUTES_YAML) as f:
+            with open(USER_ATTRIBUTES_YAML, encoding="utf-8") as f:
                 user_data = yaml.safe_load(f) or {}
         except Exception as e:
             fail(f"Cannot read schema-user/attributes.yaml: {e}")
@@ -174,7 +174,7 @@ def main():
 
     USER_SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
     try:
-        with open(USER_ATTRIBUTES_YAML, "w") as f:
+        with open(USER_ATTRIBUTES_YAML, "w", encoding="utf-8") as f:
             yaml.dump(user_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
     except Exception as e:
         fail(f"Failed to write schema-user/attributes.yaml: {e}")

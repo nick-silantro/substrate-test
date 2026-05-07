@@ -580,7 +580,7 @@ def main():
         sys.exit(1)
 
     meta_path = os.path.join(SUBSTRATE_PATH, entity["path"], "meta.yaml")
-    with open(meta_path, 'r') as f:
+    with open(meta_path, 'r', encoding="utf-8") as f:
         content = f.read()
     original_content = content  # Preserved for recurrence transition detection (section 8)
 

@@ -22,7 +22,7 @@ schema = load_schema(SUBSTRATE_PATH)
 def parse_meta(filepath):
     """Parse a meta.yaml file into a dict. Returns None on parse error."""
     try:
-        with open(filepath, 'r') as f:
+        with open(filepath, 'r', encoding="utf-8") as f:
             meta = yaml.safe_load(f)
     except yaml.YAMLError:
         return None
@@ -53,7 +53,7 @@ def pre_flight_check(meta_files):
     errors = []
     for filepath in meta_files:
         try:
-            with open(filepath, 'r') as f:
+            with open(filepath, 'r', encoding="utf-8") as f:
                 data = yaml.safe_load(f)
             if not isinstance(data, dict):
                 errors.append((filepath, "parsed as non-dict (empty or malformed)"))
