@@ -1719,10 +1719,9 @@ def cmd_init(rest: list[str]) -> None:
         print("\nInstalling background services...")
         _install_services(target, ep, reinstall=args.reinit)
 
-    # On Windows, ensure Node.js and the npm Claude CLI are installed so that
-    # the update checker and update-anthropic command can reach them.
-    if sys.platform == "win32" and not args.no_services:
-        print("\nEnsuring Node.js and Claude CLI are available...")
+    # On reinit, re-check that Node.js and Claude CLI are still present on Windows.
+    if sys.platform == "win32" and args.reinit and not args.no_services:
+        print("\nChecking Node.js and Claude CLI...")
         _ensure_node_and_claude_cli()
 
     # Set up semantic search (venv + fastembed + model). Model is cached at

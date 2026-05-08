@@ -126,6 +126,61 @@ def _parse_args() -> argparse.Namespace:
 # Prerequisites
 # ---------------------------------------------------------------------------
 
+def _find_npm_tool(name: str) -> str | None:
+    found = shutil.which(name)
+    if found:
+        return found
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            candidate = Path(appdata) / "npm" / f"{name}.cmd"
+            if candidate.exists():
+                return str(candidate)
+        if name == "npm":
+            for pf in filter(None, [os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")]):
+                candidate = Path(pf) / "nodejs" / "npm.cmd"
+                if candidate.exists():
+                    return str(candidate)
+    return None
+
+
+def _run_npm_tool(tool_path: str, args: list) -> "subprocess.CompletedProcess":
+    if sys.platform == "win32" and tool_path.endswith(".cmd"):
+        return subprocess.run(["cmd.exe", "/c", tool_path, *args], text=True)
+    return subprocess.run([tool_path, *args], text=True)
+
+
+def _ensure_node_and_claude_cli() -> None:
+    npm = _find_npm_tool("npm")
+    if npm is None:
+        _info("Node.js not found — installing via winget (this may take a minute)...")
+        result = subprocess.run(
+            ["winget", "install", "--id", "OpenJS.NodeJS.LTS",
+             "--silent", "--accept-package-agreements", "--accept-source-agreements"],
+            text=True,
+        )
+        if result.returncode != 0:
+            _warn("Node.js installation failed. Install from https://nodejs.org then re-run.")
+            return
+        for pf in filter(None, [os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")]):
+            candidate = Path(pf) / "nodejs" / "npm.cmd"
+            if candidate.exists():
+                npm = str(candidate)
+                break
+        if npm is None:
+            _warn("npm not found after Node.js install. Try restarting and re-running.")
+            return
+        _ok("Node.js installed")
+
+    if _find_npm_tool("claude") is None:
+        _info("Installing Claude Code CLI via npm...")
+        result = _run_npm_tool(npm, ["install", "-g", "@anthropic-ai/claude-code"])
+        if result.returncode != 0:
+            _warn("Claude CLI installation failed. Claude updates won't be available.")
+        else:
+            _ok("Claude Code CLI installed")
+
+
 def _check_prerequisites() -> None:
     _bold("Checking prerequisites...")
 
@@ -161,6 +216,14 @@ def _check_prerequisites() -> None:
     else:
         _warn("Claude Code not found on PATH and not detected as a running process.")
         _warn("If not yet installed: https://claude.ai/code")
+
+    # On Windows, ensure Node.js and the npm Claude CLI are present.
+    # The Claude desktop app bundles its own Node but doesn't expose npm or the
+    # claude CLI to the system. Substrate needs the CLI to check for and apply
+    # Claude Code updates. Install both here so the check-for-updates service
+    # can reach them from the moment the workspace is first created.
+    if sys.platform == "win32":
+        _ensure_node_and_claude_cli()
 
     print()
 
