@@ -38,6 +38,8 @@ _METRICS_ENDPOINT = "https://substrate-metrics.substrate-registry.workers.dev/ev
 
 def _fire_heartbeat() -> None:
     """Fire a heartbeat event at most once per 24 hours. Silent failure."""
+    if os.environ.get("SUBSTRATE_NO_TELEMETRY") or os.environ.get("CI"):
+        return
     try:
         import yaml
         import uuid

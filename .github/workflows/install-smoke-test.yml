@@ -28,6 +28,7 @@ jobs:
         env:
           PYTHONUTF8: "1"
           REPO: https://github.com/nick-silantro/substrate-test.git
+          SUBSTRATE_NO_TELEMETRY: "1"
         run: python install.py --repo "$REPO" --instance ~/substrate-ci
         shell: bash
 

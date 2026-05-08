@@ -304,6 +304,35 @@ def _run_npm_tool(tool_path: str, args: list, **kwargs) -> "subprocess.Completed
     return subprocess.run([tool_path, *args], **kwargs)
 
 
+def _refresh_path_from_registry() -> None:
+    """Reload system + user PATH from the Windows registry into the current process.
+
+    winget updates the registry immediately, but the running process still has
+    the old PATH. Calling this lets shutil.which find newly installed tools
+    (e.g. npm after a Node.js install) without spawning a new shell.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import winreg
+        paths = []
+        for root, subkey in [
+            (winreg.HKEY_LOCAL_MACHINE,
+             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+            (winreg.HKEY_CURRENT_USER, "Environment"),
+        ]:
+            try:
+                with winreg.OpenKey(root, subkey) as key:
+                    val, _ = winreg.QueryValueEx(key, "Path")
+                    paths.append(os.path.expandvars(val))
+            except Exception:
+                pass
+        if paths:
+            os.environ["PATH"] = ";".join(paths) + ";" + os.environ.get("PATH", "")
+    except Exception:
+        pass
+
+
 def engine_path(workspace: Path | None = None) -> Path:
     # 1. Workspace overlay.yaml — workspace-specific config wins over global env var.
     ws = workspace if workspace is not None else instance_path()
@@ -1057,6 +1086,8 @@ _METRICS_ENDPOINT = "https://substrate-metrics.substrate-registry.workers.dev/ev
 
 def _fire_metrics_event(event_type: str, machine_id: str, **kwargs) -> None:
     """Send a metrics event. Silent failure — never raises, never blocks."""
+    if os.environ.get("SUBSTRATE_NO_TELEMETRY") or os.environ.get("CI"):
+        return
     try:
         import json as _json
         import urllib.request as _ur
@@ -1560,12 +1591,8 @@ def _ensure_node_and_claude_cli() -> None:
             print("  Warning: Node.js installation failed.", file=sys.stderr)
             print("  Install from https://nodejs.org then re-run substrate init.", file=sys.stderr)
             return
-        # After winget install, npm lands in Program Files — PATH hasn't refreshed yet.
-        for pf in filter(None, [os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")]):
-            candidate = Path(pf) / "nodejs" / "npm.cmd"
-            if candidate.exists():
-                npm = str(candidate)
-                break
+        _refresh_path_from_registry()
+        npm = _find_npm_tool("npm")
         if npm is None:
             print("  Warning: npm not found after Node.js install. Try restarting and re-running.", file=sys.stderr)
             return

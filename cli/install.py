@@ -150,6 +150,35 @@ def _run_npm_tool(tool_path: str, args: list) -> "subprocess.CompletedProcess":
     return subprocess.run([tool_path, *args], text=True)
 
 
+def _refresh_path_from_registry() -> None:
+    """Reload system + user PATH from the Windows registry into the current process.
+
+    winget updates the registry immediately, but the running process still has
+    the old PATH. Calling this lets shutil.which find newly installed tools
+    (e.g. npm after a Node.js install) without spawning a new shell.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import winreg
+        paths = []
+        for root, subkey in [
+            (winreg.HKEY_LOCAL_MACHINE,
+             r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment"),
+            (winreg.HKEY_CURRENT_USER, "Environment"),
+        ]:
+            try:
+                with winreg.OpenKey(root, subkey) as key:
+                    val, _ = winreg.QueryValueEx(key, "Path")
+                    paths.append(os.path.expandvars(val))
+            except Exception:
+                pass
+        if paths:
+            os.environ["PATH"] = ";".join(paths) + ";" + os.environ.get("PATH", "")
+    except Exception:
+        pass
+
+
 def _ensure_node_and_claude_cli() -> None:
     npm = _find_npm_tool("npm")
     if npm is None:
@@ -162,11 +191,8 @@ def _ensure_node_and_claude_cli() -> None:
         if result.returncode != 0:
             _warn("Node.js installation failed. Install from https://nodejs.org then re-run.")
             return
-        for pf in filter(None, [os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")]):
-            candidate = Path(pf) / "nodejs" / "npm.cmd"
-            if candidate.exists():
-                npm = str(candidate)
-                break
+        _refresh_path_from_registry()
+        npm = _find_npm_tool("npm")
         if npm is None:
             _warn("npm not found after Node.js install. Try restarting and re-running.")
             return
@@ -176,7 +202,7 @@ def _ensure_node_and_claude_cli() -> None:
         _info("Installing Claude Code CLI via npm...")
         result = _run_npm_tool(npm, ["install", "-g", "@anthropic-ai/claude-code"])
         if result.returncode != 0:
-            _warn("Claude CLI installation failed. Claude updates won't be available.")
+            _warn("Claude CLI installation failed. Claude-dependent features won't be available.")
         else:
             _ok("Claude Code CLI installed")
 
@@ -211,11 +237,10 @@ def _check_prerequisites() -> None:
     _ok(f"Git {r.stdout.strip().split()[-1]}")
 
     # Claude Code — required, but only warn so the installer doesn't block
-    if shutil.which("claude") or _is_inside_claude_code():
-        _ok("Claude Code")
+    if shutil.which("claude") or _find_npm_tool("claude") or _is_inside_claude_code():
+        _ok("Claude Code CLI")
     else:
-        _warn("Claude Code not found on PATH and not detected as a running process.")
-        _warn("If not yet installed: https://claude.ai/code")
+        _warn("Claude Code CLI not found. If not yet installed: https://claude.ai/code")
 
     # On Windows, ensure Node.js and the npm Claude CLI are present.
     # The Claude desktop app bundles its own Node but doesn't expose npm or the
@@ -474,9 +499,8 @@ def main() -> None:
     _info(f"Engine:     {args.engine}")
     print()
     if not inside_claude:
-        if sys.platform == "win32":
-            _info("Close Claude Code completely and reopen it — the substrate command will be on your PATH.")
-            print()
+        _info("Open a new terminal for the substrate command to be on your PATH.")
+        print()
         _info("Open your workspace in Claude Code to get started:")
         print()
         if sys.platform == "win32":
