@@ -272,6 +272,38 @@ def instance_path() -> Path:
     return Path.cwd()
 
 
+def _find_npm_tool(name: str) -> str | None:
+    """Find an npm-installed CLI tool, falling back to known Windows paths.
+
+    On Windows, background services and Git Bash don't inherit the full user
+    PATH, so shutil.which misses npm-global tools. We check %APPDATA%\\npm
+    directly, and for npm itself also check the Node.js Program Files location.
+    """
+    import shutil
+    found = shutil.which(name)
+    if found:
+        return found
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            candidate = Path(appdata) / "npm" / f"{name}.cmd"
+            if candidate.exists():
+                return str(candidate)
+        if name == "npm":
+            for pf in filter(None, [os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")]):
+                candidate = Path(pf) / "nodejs" / "npm.cmd"
+                if candidate.exists():
+                    return str(candidate)
+    return None
+
+
+def _run_npm_tool(tool_path: str, args: list, **kwargs) -> "subprocess.CompletedProcess":
+    """Run an npm tool by full path, routing .cmd files through cmd.exe on Windows."""
+    if sys.platform == "win32" and tool_path.endswith(".cmd"):
+        return subprocess.run(["cmd.exe", "/c", tool_path, *args], **kwargs)
+    return subprocess.run([tool_path, *args], **kwargs)
+
+
 def engine_path(workspace: Path | None = None) -> Path:
     # 1. Workspace overlay.yaml — workspace-specific config wins over global env var.
     ws = workspace if workspace is not None else instance_path()
@@ -1502,6 +1534,53 @@ def _link_skills(engine_skills: Path, instance_skills: Path) -> None:
         instance_skills.symlink_to(engine_skills)
 
 
+def _ensure_node_and_claude_cli() -> None:
+    """On Windows, ensure Node.js and the npm-installed Claude CLI are present.
+
+    The Claude desktop app bundles its own Node runtime internally and does not
+    expose npm or the claude CLI to the system PATH. Without an npm-installed
+    claude, Substrate cannot check for or apply Claude CLI updates on Windows.
+    This function installs Node.js (via winget) if absent, then installs
+    @anthropic-ai/claude-code globally so that %APPDATA%\\npm\\claude.cmd exists
+    and is discoverable by the update checker and update-anthropic commands.
+    """
+    if sys.platform != "win32":
+        return
+
+    npm = _find_npm_tool("npm")
+
+    if npm is None:
+        print("  Node.js not found. Installing via winget (this may take a minute)...")
+        result = subprocess.run(
+            ["winget", "install", "--id", "OpenJS.NodeJS.LTS",
+             "--silent", "--accept-package-agreements", "--accept-source-agreements"],
+            text=True,
+        )
+        if result.returncode != 0:
+            print("  Warning: Node.js installation failed.", file=sys.stderr)
+            print("  Install from https://nodejs.org then re-run substrate init.", file=sys.stderr)
+            return
+        # After winget install, npm lands in Program Files — PATH hasn't refreshed yet.
+        for pf in filter(None, [os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")]):
+            candidate = Path(pf) / "nodejs" / "npm.cmd"
+            if candidate.exists():
+                npm = str(candidate)
+                break
+        if npm is None:
+            print("  Warning: npm not found after Node.js install. Try restarting and re-running.", file=sys.stderr)
+            return
+        print("  ✓ Node.js installed")
+
+    claude = _find_npm_tool("claude")
+    if claude is None:
+        print("  Installing Claude Code CLI via npm...")
+        result = _run_npm_tool(npm, ["install", "-g", "@anthropic-ai/claude-code"], text=True)
+        if result.returncode != 0:
+            print("  Warning: Claude CLI installation failed. Claude updates won't be available.", file=sys.stderr)
+        else:
+            print("  ✓ Claude Code CLI installed")
+
+
 def cmd_init(rest: list[str]) -> None:
     import textwrap
 
@@ -1639,6 +1718,12 @@ def cmd_init(rest: list[str]) -> None:
         _setup_venv(target)
         print("\nInstalling background services...")
         _install_services(target, ep, reinstall=args.reinit)
+
+    # On Windows, ensure Node.js and the npm Claude CLI are installed so that
+    # the update checker and update-anthropic command can reach them.
+    if sys.platform == "win32" and not args.no_services:
+        print("\nEnsuring Node.js and Claude CLI are available...")
+        _ensure_node_and_claude_cli()
 
     # Set up semantic search (venv + fastembed + model). Model is cached at
     # ~/.substrate/model-cache/ so this is only slow on the very first install.
@@ -1967,9 +2052,18 @@ def cmd_update_anthropic(_rest: list[str]) -> None:
     pending = ip / "_system" / "docs" / "pending-updates.md"
 
     print("Updating Claude Code CLI...")
-    result = subprocess.run(["claude", "update"], text=True)
-    if result.returncode != 0:
-        print("  Warning: claude update returned non-zero — check output above.", file=sys.stderr)
+    claude = _find_npm_tool("claude")
+    npm = _find_npm_tool("npm")
+    if claude is None:
+        print("  Claude CLI not found — skipping.")
+    elif sys.platform == "win32" and npm:
+        result = _run_npm_tool(npm, ["install", "-g", "@anthropic-ai/claude-code@latest"], text=True)
+        if result.returncode != 0:
+            print("  Warning: Claude CLI update failed — check output above.", file=sys.stderr)
+    else:
+        result = _run_npm_tool(claude, ["update"], text=True)
+        if result.returncode != 0:
+            print("  Warning: claude update returned non-zero — check output above.", file=sys.stderr)
 
     print("\nUpdating Agent SDK (@anthropic-ai/claude-agent-sdk)...")
     updated_any = False
@@ -1977,10 +2071,12 @@ def cmd_update_anthropic(_rest: list[str]) -> None:
         pkg_dir = ep / app_dir
         if (pkg_dir / "package.json").exists():
             print(f"  {app_dir}...")
-            subprocess.run(
-                ["npm", "install", "@anthropic-ai/claude-agent-sdk@latest"],
-                cwd=pkg_dir, text=True
-            )
+            if npm:
+                _run_npm_tool(npm, ["install", "@anthropic-ai/claude-agent-sdk@latest"],
+                              cwd=pkg_dir, text=True)
+            else:
+                subprocess.run(["npm", "install", "@anthropic-ai/claude-agent-sdk@latest"],
+                               cwd=pkg_dir, text=True)
             updated_any = True
     if not updated_any:
         print("  No Surface/Relay app directories found — skipping SDK update.", file=sys.stderr)

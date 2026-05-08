@@ -148,6 +148,40 @@ def _venv_pip() -> Path | None:
     return None
 
 
+def _find_npm_tool(name: str) -> str | None:
+    """Find an npm-installed CLI tool (claude, npm), handling Windows PATH gaps.
+
+    On Windows, background services and Git Bash don't inherit the user's full
+    PATH, so shutil.which often misses npm-global tools. We fall back to the
+    canonical npm global bin directory (%APPDATA%\\npm) and, for npm itself,
+    the Node.js Program Files install location.
+    """
+    import shutil
+    found = shutil.which(name)
+    if found:
+        return found
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA", "")
+        if appdata:
+            candidate = Path(appdata) / "npm" / f"{name}.cmd"
+            if candidate.exists():
+                return str(candidate)
+        if name == "npm":
+            for pf in filter(None, [os.environ.get("ProgramFiles"), os.environ.get("ProgramW6432")]):
+                candidate = Path(pf) / "nodejs" / "npm.cmd"
+                if candidate.exists():
+                    return str(candidate)
+    return None
+
+
+def _run_tool(tool_path: str, args: list) -> "subprocess.CompletedProcess":
+    """Run a tool by full path, routing .cmd files through cmd.exe on Windows."""
+    if sys.platform == "win32" and tool_path.endswith(".cmd"):
+        return subprocess.run(["cmd.exe", "/c", tool_path, *args],
+                              capture_output=True, text=True, timeout=30)
+    return subprocess.run([tool_path, *args], capture_output=True, text=True, timeout=30)
+
+
 # ---------------------------------------------------------------------------
 # Individual checks
 # ---------------------------------------------------------------------------
@@ -277,11 +311,10 @@ def check_agent_sdk() -> tuple[bool | None, str, str]:
         if not current:
             return False, "not installed", ""
 
-        npm_result = subprocess.run(
-            ["npm", "view", "@anthropic-ai/claude-agent-sdk", "version"],
-            capture_output=True, text=True, timeout=20,
-            shell=(sys.platform == "win32"),
-        )
+        npm = _find_npm_tool("npm")
+        if npm is None:
+            return None, "npm not found", ""
+        npm_result = _run_tool(npm, ["view", "@anthropic-ai/claude-agent-sdk", "version"])
         if npm_result.returncode != 0:
             return None, "npm check failed", ""
         latest = npm_result.stdout.strip()
@@ -335,26 +368,21 @@ def _fetch_sdk_changelog(current: str, latest: str) -> str:
 def check_claude_cli() -> tuple[bool | None, str]:
     """Check if a newer Claude Code CLI is available via npm."""
     try:
-        _win = sys.platform == "win32"
-        result = subprocess.run(
-            ["claude", "--version"],
-            capture_output=True, text=True, timeout=10,
-            shell=_win,
-        )
-        if result.returncode != 0 and not result.stdout.strip() and not result.stderr.strip():
-            return False, "not installed"
-        raw = (result.stdout.strip() or result.stderr.strip()).split("\n")[0]
-        # Parse version from formats like "1.2.3" or "claude/1.2.3" or "Claude Code 1.2.3"
-        parts = raw.replace("/", " ").split()
-        current = next((p for p in parts if p[0].isdigit()), None)
-        if not current:
-            return False, "not installed"
+        claude = _find_npm_tool("claude")
+        if claude is None:
+            return False, "not in PATH — skipping"
 
-        npm_result = subprocess.run(
-            ["npm", "view", "@anthropic-ai/claude-code", "version"],
-            capture_output=True, text=True, timeout=20,
-            shell=_win,
-        )
+        result = _run_tool(claude, ["--version"])
+        raw = (result.stdout.strip() or result.stderr.strip()).split("\n")[0]
+        parts = raw.replace("/", " ").split()
+        current = next((p for p in parts if p and p[0].isdigit()), None)
+        if not current:
+            return False, "not in PATH — skipping"
+
+        npm = _find_npm_tool("npm")
+        if npm is None:
+            return None, "npm not found"
+        npm_result = _run_tool(npm, ["view", "@anthropic-ai/claude-code", "version"])
         if npm_result.returncode != 0:
             return None, "npm check failed"
         latest = npm_result.stdout.strip()
@@ -367,8 +395,6 @@ def check_claude_cli() -> tuple[bool | None, str]:
             return False, f"snoozed ({latest})"
 
         return True, f"{current} → {latest}"
-    except FileNotFoundError:
-        return False, "not installed"
     except Exception as e:
         return None, str(e)
 
