@@ -269,7 +269,7 @@ def main():
         description=f"Profile of {full_name}. Read by agents to calibrate communication and approach.",
         filename=f"USER-{call_name_upper}.md",
         content=_build_user_doc(user_data),
-        startup_for=["L0", "L1"],
+        startup_for=["all"],
         context_audience=["all"],
     )
 
@@ -278,7 +278,7 @@ def main():
         description="Current workspace narrative — focus, state, and momentum.",
         filename="NARRATIVE.md",
         content=_build_narrative_doc(narrative_data),
-        startup_for=["L0", "L1", "L2"],
+        startup_for=["all"],
         context_audience=["all"],
     )
 
@@ -287,8 +287,8 @@ def main():
         description="Operational dispatch surface. Open threads, decisions, and items needing pickup.",
         filename="BULLETIN-BOARD.md",
         content=_build_bulletin_board_doc(bulletin_data),
-        startup_for=["L0", "L1"],
-        context_audience=["L0", "L1"],
+        startup_for=["all"],
+        context_audience=["all"],
     )
 
     # Configure workspace hooks
