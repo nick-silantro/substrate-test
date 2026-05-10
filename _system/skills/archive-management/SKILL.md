@@ -1,16 +1,16 @@
 ---
 name: archive-management
-description: Archive entities and old decision traces. Use when user says "archive old traces", "what can be archived", "archive this", "delete entity", "restore entity", or "retrieve from archive". Entity archiving uses delete-entity.py; trace archiving is manual file moves.
+description: Archive entities and old decision traces. Use when user says "archive old traces", "what can be archived", "archive this", "delete entity", "restore entity", or "retrieve from archive". Entity archiving uses the CLI; trace archiving is manual file moves.
 author: Nick Silhacek
-version: 0.2.0
-last_edited: 2026-03-03
+version: 0.2.1
+last_edited: 2026-05-10
 ---
 
 # Archive Management
 
-Archive content to reduce clutter while maintaining retrievability. Entity archiving is handled by `delete-entity.py`; trace archiving is a manual file-move process.
+Archive content to reduce clutter while maintaining retrievability. Entity archiving is handled by the CLI (`substrate entity delete`); trace archiving is a manual file-move process.
 
-## Entity Archiving (via delete-entity.py)
+## Entity Archiving
 
 Entity archiving is built into `delete-entity.py`. The default behavior is **soft delete**: sets `meta_status: archived` in-place (no folder movement), drops the entity from all active queries, and logs the operation to the CDC changelog.
 
@@ -112,11 +112,11 @@ Would you like to see any of these?
 
 | User Says | Action |
 |-----------|--------|
-| "Archive this entity" / "Delete this" | `delete-entity.py UUID` (soft delete) |
-| "Permanently delete" | `delete-entity.py UUID --permanent --force` |
-| "Restore [entity]" | `delete-entity.py --restore UUID` |
+| "Archive this entity" / "Delete this" | `substrate entity delete UUID` (soft delete) |
+| "Permanently delete" | `substrate entity delete UUID --permanent --force` |
+| "Restore [entity]" | `substrate entity delete --restore UUID` |
 | "What's archived?" | SQLite query for `meta_status = 'archived'` |
-| "Clean up old archives" | `delete-entity.py --purge-expired` |
+| "Clean up old archives" | `substrate entity delete --purge-expired` |
 | "Archive old traces" | Manual file move to `_system/archive/traces/` |
 | "Find archived trace" | Search `_system/archive/traces/` |
 
@@ -126,4 +126,4 @@ Would you like to see any of these?
 - **All operations are CDC-logged.** Archive, restore, and hard delete events appear in the changelog.
 - **Traces are easy.** Archive them freely. Safe, reversible, reduces clutter.
 - **User controls everything.** No automatic archiving. User explicitly requests each action.
-- **Don't manually edit meta_status.** Always use `delete-entity.py` so the changelog, SQLite, and meta.yaml stay in sync.
+- **Don't manually edit meta_status.** Always use `substrate entity delete` so the changelog, SQLite, and meta.yaml stay in sync.

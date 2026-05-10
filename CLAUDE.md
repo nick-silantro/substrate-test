@@ -19,3 +19,5 @@ substrate context context-stack
 ```
 
 If that returns nothing, skip it — the instance is new and context documents haven't been set up yet.
+
+The output is a manifest listing file paths and descriptions. **Use your Read tool to read each file listed.** Do not skip this step — those files contain critical context about the user and workspace.

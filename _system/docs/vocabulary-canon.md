@@ -1,5 +1,6 @@
 ---
 name: Vocabulary Canon
+description: Authoritative definitions for all Substrate terms. When this document and any other disagree, this document is correct.
 startup_for: [L0, L1, "domain:graph"]
 context_audience: [all]
 ---

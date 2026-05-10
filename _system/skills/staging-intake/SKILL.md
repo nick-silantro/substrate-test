@@ -1,9 +1,8 @@
 ---
 name: staging-intake
-description: Process files from staging into proper entities. Use when user says "process staging", "what's in staging", "intake this", "turn this into an entity", or similar. Analyzes files, infers entity types, and creates entities using scripts.
-author: Nick Silhacek
-version: 0.3.0
-last_edited: 2026-03-06
+description: Process files from staging into proper entities. Use when user says "process staging", "what's in staging", "intake this", "turn this into an entity", or similar. Analyzes files, infers entity types, and creates entities using the CLI.
+version: 0.4.0
+last_edited: 2026-05-10
 ---
 
 # Staging Intake
@@ -15,12 +14,12 @@ Transform files into structured entities. Staging is the intake valve — everyt
 1. **Inventory** — list staging folder contents
 2. **Analyze** — infer type, extract metadata, identify relationships
 3. **Present** — show analysis to user for confirmation
-4. **Create** — run create-entity.py for each confirmed file, move file into entity folder
+4. **Create** — run `substrate entity create` for each confirmed file, move file into entity folder
 5. **Report** — summarize what was created
 
 ## The Staging Folder
 
-Location: `/staging/`
+Location: `{workspace}/staging/`
 
 Files sit here until the user asks to process them. Sources:
 - Files manually dropped by user
@@ -30,20 +29,21 @@ Files sit here until the user asks to process them. Sources:
 
 ### Step 1: Inventory Staging
 
-List all files in `/staging/`. Note file names, types, sizes, dates. Report to user what was found.
+List all files in `staging/`. Note file names, types, sizes, dates. Report to user what was found.
 
 ### Step 2: Analyze Each File
 
 For each staged file:
 
-1. **Determine content type** by extension (.md, .pdf, .docx, etc.)
+1. **Determine content type** by extension (`.md`, `.pdf`, `.docx`, etc.)
 2. **Extract metadata** — title/name (from filename or document heading), dates
 3. **Infer entity type** — compare against `_system/schema/types.yaml`. Common patterns:
    - `.md` files → usually `note`
    - `.docx`, `.pdf` → usually `document`
    - Files named `meeting-*` or `notes-*` → consider `meeting` or `note`
+   - Image, audio, or video files → asset types (`photo`, `audio-file`, `video-file`) — these go to `assets/`, not the entity folder (see Asset Files below)
    - When uncertain → ask the user or default to `note`
-4. **Identify potential relationships** — scan for mentions of existing entity names (use `query.py find` to check). Note as suggestions, not automatic links.
+4. **Identify potential relationships** — scan for mentions of existing entity names (use `substrate query find` to check). Note as suggestions, not automatic links.
 
 ### Step 3: Present to User
 
@@ -70,23 +70,30 @@ Options: confirm all, modify specific items, process one at a time, skip certain
 
 ### Step 4: Create Entities
 
-For each confirmed file, use `create-entity.py`:
+For each confirmed file, use the CLI:
 
 ```bash
 substrate entity create \
   --type document \
   --name "Project Proposal" \
-  --description "Q1 project proposal document imported from staging." \
-  --relates_to PROJECT_UUID \
-  --attr source_file=project-proposal.docx
+  --description "Q1 project proposal document." \
+  --belongs_to PROJECT_UUID
 ```
 
-Then move the file into the entity folder:
+Relationship flags take the form `--<relationship_type> UUID` where the type is a valid schema relationship (e.g., `--belongs_to`, `--produced_by`, `--relates_to`). Check `_system/schema/relationships.yaml` if unsure which applies.
+
+The CLI output includes the entity folder path:
+```
+Created document: Project Proposal
+   ID: abc12345-...
+   Path: entities/document/ab/cd/abc12345.../meta.yaml
+```
+
+Move the staged file to that entity folder (the `Path:` line, minus `/meta.yaml`):
+
 ```bash
-mv staging/project-proposal.docx entities/document/{shard-path}/{uuid}/
+mv staging/project-proposal.docx entities/document/ab/cd/abc12345.../
 ```
-
-The script output shows the created path — use it to know where to move the file.
 
 **Description quality matters** — don't just say "imported from staging." Use the file content, filename, and conversation context to write a meaningful description. If context is truly limited: `"Document imported from staging. [awaiting context]"`
 
@@ -94,12 +101,18 @@ The script output shows the created path — use it to know where to move the fi
 
 ```
 Created 2 entities:
-- "Project Proposal" (document) [abc12345]
-  → relates_to Q1 Campaign
-- "Ideas" (note) [def67890]
+- "Project Proposal" (document)
+  → belongs_to Q1 Campaign
+- "Ideas" (note)
 
 Skipped 1 file (unknown format)
 ```
+
+## Asset Files
+
+Image, audio, and video files use the asset grouping (`photo`, `logo`, `audio-file`, `video-file`, etc.). These go to `assets/` rather than the entity folder — the entity's `asset_path` attribute points to the file location. Check `_system/schema/types.yaml` for which types are asset-grouped.
+
+For asset types, after creating the entity, move the file to `assets/` and note the path in context — the user or agent can link it via `asset_path` once the entity exists.
 
 ## Handling Special Cases
 
@@ -116,7 +129,7 @@ Skipped 1 file (unknown format)
 
 ## Mid-Session Organic Processing
 
-When a staging file gets consumed mid-session (not through a formal intake pass — e.g., a file is dropped in staging, used as context, and an entity is created from it during conversation), clear the staging file immediately after the entity is created. Don't wait for a formal intake pass. The rule is the same: file moves into the entity folder, staging is left clean.
+When a staging file gets consumed mid-session (not through a formal intake pass — e.g., a file is dropped in staging, used as context, and an entity is created from it during conversation), clear the staging file immediately after the entity is created. Don't wait for a formal intake pass. The rule is the same: file moves into the entity folder (or assets/), staging is left clean.
 
 ## Principles
 

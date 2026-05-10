@@ -3,7 +3,7 @@ name: entity-management
 description: Create, update, and manage entities in a functional system. Use when user says "create task", "create ticket", "create meeting", "new entity", "update task", "rename entity", "mark as complete", "delete entity", or similar entity operations. Scripts handle UUID generation, folder structure, meta.yaml, SQLite indexing, and bidirectional relationships.
 author: Nick Silhacek
 version: 0.8.0
-last_edited: 2026-04-07
+last_edited: 2026-05-10
 ---
 
 # Entity Management
@@ -320,7 +320,7 @@ substrate entity update UUID --name "Better Name"
 substrate entity update UUID --description "Clearer description"
 
 # Mark an entity as processed by an agent (idempotent, no duplicates)
-substrate entity update UUID --mark-processed carl
+substrate entity update UUID --mark-processed agent-name
 ```
 
 Run with `--help` for all options.
@@ -338,8 +338,8 @@ substrate query type task               # All of a type
 substrate query children UUID           # Direct children
 substrate query tree UUID               # Full hierarchy
 substrate query dim focus active        # Query by dimension
-substrate query by nick                 # Work by actor
-substrate query unprocessed carl        # Unprocessed by agent
+substrate query by username             # Work by actor
+substrate query unprocessed agent-name  # Unprocessed by agent
 substrate query theme                   # All themes with entity counts
 substrate query theme foundation        # All entities with a given theme
 ```

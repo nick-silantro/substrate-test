@@ -1,5 +1,6 @@
 ---
 name: Workspace Guide
+description: Operational rules and conventions that govern how agents work in this workspace. Complements CLAUDE.md.
 startup_for: [L0, L1, L2]
 context_audience: [all]
 ---

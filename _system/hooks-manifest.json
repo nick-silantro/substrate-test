@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "script": "_system/scripts/validate-context-doc-edit.py",
+        "description": "Validates context-doc entity markdown files after edits (line count, UUID presence)"
+      }
+    ]
+  }
+}

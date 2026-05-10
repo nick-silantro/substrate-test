@@ -1021,7 +1021,7 @@ def cmd_context(rest: list[str]) -> None:
             sys.exit(1)
         env = {**os.environ, "SUBSTRATE_PATH": str(ip), "SUBSTRATE_ENGINE_PATH": str(ep)}
         result = subprocess.run(
-            [sys.executable, str(script), "boot", level, "--content"],
+            [sys.executable, str(script), "boot", level, "--manifest"],
             env=env,
         )
         sys.exit(result.returncode)

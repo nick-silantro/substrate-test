@@ -2,8 +2,8 @@
 name: relationship-management
 description: Manage links between entities in a functional system. Use when user says "link", "connect", "associate", "add relationship", "remove link", "unlink", "show relationships", "what belongs to", "what depends on", or similar. Scripts handle bidirectional relationships and SQLite indexing.
 author: Nick Silhacek
-version: 0.5.0
-last_edited: 2026-03-09
+version: 0.5.1
+last_edited: 2026-05-10
 ---
 
 # Relationship Management
@@ -19,7 +19,7 @@ Manage links between entities. Scripts handle bidirectionality, meta.yaml update
 
 ## Creating Relationships
 
-### Via create-entity.py (at creation time)
+### At creation time
 
 ```bash
 substrate entity create \
@@ -30,7 +30,7 @@ substrate entity create \
 
 The script writes the relationship to the new entity's meta.yaml, writes the inverse (`contains`) to the target entity's meta.yaml, and inserts both directions into SQLite.
 
-### Via update-entity.py (after creation)
+### After creation
 
 ```bash
 substrate entity update ENTITY_UUID --belongs_to TARGET_UUID
@@ -143,7 +143,7 @@ Role-based connections, participation, and general association.
 
 If an entity would be meaningless or unlocatable without its parent, use `belongs_to`. If it stands alone and just happens to touch something, use `relates_to`.
 
-`belongs_to` makes entities discoverable via `query.py tree` and `query.py children`. `relates_to` only appears in `query.py relationships`. When in doubt: "Would someone exploring the parent entity expect to find this?"
+`belongs_to` makes entities discoverable via `substrate query tree` and `substrate query children`. `relates_to` only appears in `substrate query relationships`. When in doubt: "Would someone exploring the parent entity expect to find this?"
 
 ### Origin vs Causal
 

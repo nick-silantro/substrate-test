@@ -1,5 +1,14 @@
 # Substrate Release Notes
 
+## 0.1.14-5
+
+**Windows installer fixes**
+
+- After installing Node.js via winget, the installer now re-reads the system PATH from the Windows registry immediately — no restart required to find npm.
+- Removed false "Claude Code not found" warning that appeared when the Claude CLI had just been installed but wasn't yet visible on the current session's PATH.
+- Replaced Windows-specific "Close Claude Code completely" message with a cross-platform instruction to open a new terminal.
+- Telemetry is now suppressed when `SUBSTRATE_NO_TELEMETRY=1` or `CI=true` is set — CI runners no longer count as installs.
+
 ## 0.1.12
 
 **Install metrics**

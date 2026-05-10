@@ -1,5 +1,6 @@
 ---
 name: Agent Operations
+description: How agents operate within Substrate — operational principles, dimensional semantics, and system coordination.
 startup_for: [all]
 context_audience: [all]
 ---

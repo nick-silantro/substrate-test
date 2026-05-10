@@ -1,5 +1,6 @@
 ---
 name: Philosophy Quick Reference
+description: Condensed reference for status dimensions, work hierarchy, and entity grouping concepts.
 startup_for: [L0, L1, L2, "domain:graph"]
 context_audience: [all]
 ---

@@ -3,7 +3,7 @@ name: entity-query
 description: Find and retrieve entities from a functional system. Use when user says "find", "list", "what's under", "show me all", "what depends on", "what belongs to", "get all work", or similar query/search operations. Handles relationship traversal, filtering by type, and dimensional status queries.
 author: Nick Silhacek
 version: 0.5.0
-last_edited: 2026-03-04
+last_edited: 2026-05-10
 ---
 
 # Entity Query
@@ -44,8 +44,8 @@ substrate query COMMAND [ARGS]
 | `dim DIMENSION [VALUE]` | Query by dimension | `query.py dim focus active` |
 | `workable` | Items available for work | `query.py workable` |
 | `stuck` | Permanently blocked items | `query.py stuck` |
-| `by ACTOR` | Work performed/owned by actor | `query.py by nick` |
-| `unprocessed AGENT [TYPE]` | Not yet processed by agent | `query.py unprocessed carl` |
+| `by ACTOR` | Work performed/owned by actor | `query.py by username` |
+| `unprocessed AGENT [TYPE]` | Not yet processed by agent | `query.py unprocessed agent-name` |
 | `changelog` | Recent change history (CDC log) | `query.py changelog --last 10` |
 | `due [N] [--type T]` | Overdue or due within N days | `query.py due 7 --type chore` |
 | `chores [--due]` | All chores with status/streak | `query.py chores --due` |
@@ -164,21 +164,21 @@ Returns counts per value (e.g., active: 15, idle: 30, blocked: 2).
 ## Actor & Agent Queries
 
 ### Work by Actor
-> "What is Nick working on?" / "Show Carl's tasks"
+> "What is the user working on?" / "Show the agent's tasks"
 
 ```bash
-substrate query by nick
-substrate query by carl
+substrate query by username
+substrate query by agent-name
 ```
 
 Shows tasks performed by an actor (`performed_by` relationship) and work assigned to them (`assigned_to` relationship). Accepts UUID, short UUID prefix, or name (case-insensitive for user/agent entities).
 
 ### Unprocessed Entities
-> "What hasn't Carl seen yet?" / "Show diary entries no agent has read"
+> "What hasn't the agent seen yet?" / "Show diary entries no agent has read"
 
 ```bash
-substrate query unprocessed carl
-substrate query unprocessed carl diary-entry
+substrate query unprocessed agent-name
+substrate query unprocessed agent-name diary-entry
 ```
 
 Shows entities where the given agent is not in the `processed_by` list. Optional type filter narrows results.

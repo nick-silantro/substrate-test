@@ -1,5 +1,6 @@
 ---
 name: Schema Conventions
+description: How schema YAML files work, what the conventions mean, and how to extend them. Reference before adding entity types or attributes.
 startup_for: [L0]
 context_audience: [all]
 ---

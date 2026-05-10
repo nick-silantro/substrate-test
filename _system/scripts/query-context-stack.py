@@ -116,7 +116,9 @@ def load_entity_docs():
         if os.path.isdir(entity_dir):
             content_files = sorted([
                 f for f in os.listdir(entity_dir)
-                if os.path.isfile(os.path.join(entity_dir, f)) and f != "meta.yaml"
+                if os.path.isfile(os.path.join(entity_dir, f))
+                and f != "meta.yaml"
+                and not f.endswith(".lock")
             ])
 
         docs.append({
@@ -176,11 +178,12 @@ def load_engine_docs():
             context_audience = [context_audience]
 
         name = frontmatter.get("name") or filename[:-3].replace("-", " ").title()
+        description = frontmatter.get("description", "")
 
         docs.append({
             "id": None,
             "name": name,
-            "description": "",
+            "description": description,
             "path": os.path.join("_system", "docs", filename),
             "entity_dir": None,
             "engine_file": filepath,
@@ -232,11 +235,12 @@ def load_workspace_docs():
             context_audience = [context_audience]
 
         name = frontmatter.get("name") or filename[:-3].replace("-", " ").title()
+        description = frontmatter.get("description", "")
 
         docs.append({
             "id": None,
             "name": name,
-            "description": "",
+            "description": description,
             "path": os.path.join("_system", "docs", filename),
             "entity_dir": None,
             "engine_file": filepath,
@@ -329,6 +333,26 @@ def print_content(docs):
                     print(f"[Error reading {filepath}: {e}]")
 
 
+def print_manifest(docs):
+    """Print a compact manifest: one absolute path + description per doc.
+
+    Designed to stay small enough to never be collapsed or truncated by the
+    agent harness. The agent reads each file explicitly with the Read tool.
+    """
+    if not docs:
+        print("No context documents found for this identity.")
+        return
+
+    print(f"Context stack ({len(docs)} document{'s' if len(docs) != 1 else ''}). Read each file with your Read tool:\n")
+    for doc in docs:
+        for filepath in content_file_paths(doc):
+            desc = doc.get("description", "").strip()
+            print(filepath)
+            if desc:
+                print(f"  {desc}")
+            print()
+
+
 def print_json(docs):
     """Print machine-readable JSON output."""
     output = []
@@ -364,6 +388,8 @@ def main():
         arg = sys.argv[i]
         if arg == "--content":
             output_mode = "content"
+        elif arg == "--manifest":
+            output_mode = "manifest"
         elif arg == "--paths-only":
             output_mode = "paths"
         elif arg == "--format" and i + 1 < len(sys.argv) and sys.argv[i + 1] == "json":
@@ -391,6 +417,8 @@ def main():
         print_paths(matched)
     elif output_mode == "content":
         print_content(matched)
+    elif output_mode == "manifest":
+        print_manifest(matched)
     elif output_mode == "json":
         print_json(matched)
 

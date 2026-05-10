@@ -35,6 +35,7 @@ SUBSTRATE_PATH = os.environ.get(
     "SUBSTRATE_PATH",
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 )
+ENGINE_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
 # ---------------------------------------------------------------------------
 # Document templates (rules headers baked in; user-specific content appended)
@@ -180,6 +181,61 @@ def _build_bulletin_board_doc(data):
 
 
 # ---------------------------------------------------------------------------
+# Hook setup
+# ---------------------------------------------------------------------------
+
+def _setup_hooks():
+    """Write hooks from _system/hooks-manifest.json into .claude/settings.json.
+
+    Adding a new hook: add an entry to hooks-manifest.json. No code change needed.
+    """
+    manifest_path = os.path.join(ENGINE_ROOT, "_system", "hooks-manifest.json")
+    if not os.path.exists(manifest_path):
+        return
+
+    with open(manifest_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+
+    claude_dir = Path(SUBSTRATE_PATH) / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    settings_path = claude_dir / "settings.json"
+
+    if settings_path.exists():
+        try:
+            with open(settings_path, encoding="utf-8") as f:
+                settings = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            settings = {}
+    else:
+        settings = {}
+
+    hooks_config = settings.setdefault("hooks", {})
+    added = 0
+
+    for event_type, entries in manifest.get("hooks", {}).items():
+        event_list = hooks_config.setdefault(event_type, [])
+        for entry in entries:
+            script_path = os.path.join(ENGINE_ROOT, entry["script"])
+            command = f"python3 {script_path}"
+            already = any(
+                any(h.get("command", "") == command for h in e.get("hooks", []))
+                for e in event_list
+            )
+            if not already:
+                event_list.append({
+                    "matcher": entry["matcher"],
+                    "hooks": [{"type": "command", "command": command}],
+                })
+                added += 1
+
+    if added > 0:
+        with open(settings_path, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+            f.write("\n")
+        print(f"  Configured {added} workspace hook(s)")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -234,6 +290,9 @@ def main():
         startup_for=["L0", "L1"],
         context_audience=["L0", "L1"],
     )
+
+    # Configure workspace hooks
+    _setup_hooks()
 
     # Rebuild index
     migrate = Path(SCRIPT_DIR) / "migrate-to-sqlite.py"

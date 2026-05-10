@@ -2,8 +2,8 @@
 name: system-validation
 description: Verify system integrity and repair inconsistencies. Use when user says "check system health", "validate indexes", "something seems wrong", "repair system", or during scheduled maintenance. Detects orphaned entities, broken relationships, index drift, and schema violations.
 author: Nick Silhacek
-version: 0.4.0
-last_edited: 2026-03-03
+version: 0.4.1
+last_edited: 2026-05-10
 ---
 
 # System Validation
@@ -26,7 +26,7 @@ substrate query stats
 substrate index rebuild
 ```
 
-If `validate.py` reports issues, `--repair` will fix SQLite drift and missing inverse relationships automatically. Dangling references, unknown types, and invalid dimensions require manual review.
+If validation reports issues, `--repair` will fix SQLite drift and missing inverse relationships automatically. Dangling references, unknown types, and invalid dimensions require manual review.
 
 ## When to Validate
 
@@ -57,7 +57,7 @@ If `validate.py` reports issues, `--repair` will fix SQLite drift and missing in
 **What:** Every relationship should have its inverse on the target entity.
 
 **Check:**
-1. Use `query.py relationships UUID` on entities to list their relationships
+1. Use `substrate query relationships UUID` on entities to list their relationships
 2. For each relationship, verify the target entity has the matching inverse
 3. Check `_system/schema/relationships.yaml` for the correct inverse name
 
@@ -80,7 +80,7 @@ substrate validate schema
 Runs 18 cross-file checks: type references, grouping coverage, access declarations, inverse completeness, enum validity, connection rules, attribute collisions, etc. Run this after any schema change or when schema-related errors appear.
 
 **Entity compliance check:**
-1. For each entity (use `query.py type TYPE` to enumerate):
+1. For each entity (use `substrate query type TYPE` to enumerate):
 2. Verify type exists in `_system/schema/types.yaml`
 3. Check dimensional status values are valid for the type's nature
 4. Verify relationships use valid relationship names from the schema
@@ -103,7 +103,7 @@ Runs 18 cross-file checks: type references, grouping coverage, access declaratio
 
 **Check:**
 1. Query all relationships from SQLite: `SELECT * FROM relationships`
-2. For each target UUID, verify it exists: `query.py entity UUID`
+2. For each target UUID, verify it exists: `substrate query entity UUID`
 
 **Issues detected:**
 - `dangling_reference`: UUID in relationship doesn't resolve to any entity
@@ -187,17 +187,7 @@ Substrate has two layers of validation:
 
 1. **System integrity** (`validate.py`) — checks the whole workspace after the fact. Is SQLite consistent with disk? Are relationships bidirectional? Are schema rules followed? This skill covers system integrity.
 
-2. **Operation pre-checks** (`precheck.py`) — validates a single create/update operation against the schema before it runs. Invalid dimension values, forbidden fields, bad enum values, connection rule violations. Wired into `create-entity.py` and `update-entity.py` so operations are blocked before writing. Also available standalone for agents and Surface form validation.
-
-```bash
-# Standalone pre-check (same flags as entity scripts)
-python3 _system/scripts/precheck.py create --type task --name "..." --focus Banana
-python3 _system/scripts/precheck.py update UUID --focus active
-
-# Module usage (for Surface, MCP, etc.)
-from precheck import validate_create, validate_update
-result = validate_create(schema, "task", dimensions={"focus": "Banana"}, db_path=DB_PATH)
-```
+2. **Operation pre-checks** — validates a single create/update operation against the schema before it runs. Invalid dimension values, forbidden fields, bad enum values, connection rule violations. Built into `substrate entity create` and `substrate entity update` so operations are blocked before writing.
 
 See the `entity-management` skill for details on what pre-checks catch.
 
