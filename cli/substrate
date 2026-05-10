@@ -2294,22 +2294,17 @@ def cmd_channel(rest: list[str]) -> None:
 
 def cmd_version(_rest: list[str]) -> None:
     ep = engine_path()
-    # Try to get git tag / commit
-    version = "unknown"
+    # VERSION file is the source of truth (OPERATIONS.md)
+    version_file = ep / "VERSION"
+    version = version_file.read_text(encoding="utf-8").strip() if version_file.exists() else "unknown"
+    # Append short git commit if available
     try:
-        tag = subprocess.run(
-            ["git", "-C", str(ep), "describe", "--tags", "--abbrev=0"],
+        commit = subprocess.run(
+            ["git", "-C", str(ep), "rev-parse", "--short", "HEAD"],
             capture_output=True, text=True,
         )
-        if tag.returncode == 0:
-            version = tag.stdout.strip()
-            # Also get short commit for precision
-            commit = subprocess.run(
-                ["git", "-C", str(ep), "rev-parse", "--short", "HEAD"],
-                capture_output=True, text=True,
-            )
-            if commit.returncode == 0:
-                version = f"{version} ({commit.stdout.strip()})"
+        if commit.returncode == 0:
+            version = f"{version} ({commit.stdout.strip()})"
     except FileNotFoundError:
         pass  # git not available
     print(f"substrate {version}")
@@ -2481,6 +2476,10 @@ def main() -> None:
     if not args or args[0] in ("-h", "--help", "help"):
         print_help()
         sys.exit(0)
+
+    if args[0] in ("--version", "-V"):
+        cmd_version([])
+        return
 
     # Try longest match first (3 tokens, then 2, then 1)
     for length in (3, 2, 1):

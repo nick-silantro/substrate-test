@@ -255,7 +255,11 @@ def load_workspace_docs():
 
 
 def load_all_docs():
-    """Load context docs from engine flat files, workspace flat files, and workspace entities."""
+    """Load context docs from engine flat files, workspace flat files, and workspace entities.
+
+    Entity docs come last so filter_docs preserves that order, but print_manifest
+    reorders them: workspace-specific (entity/workspace) first, engine docs last.
+    """
     return load_engine_docs() + load_workspace_docs() + load_entity_docs()
 
 
@@ -336,21 +340,39 @@ def print_content(docs):
 def print_manifest(docs):
     """Print a compact manifest: one absolute path + description per doc.
 
-    Designed to stay small enough to never be collapsed or truncated by the
-    agent harness. The agent reads each file explicitly with the Read tool.
+    Workspace-specific docs (entity/workspace source) are listed first and marked
+    required — they contain user-specific context the agent cannot know otherwise.
+    Engine docs follow, marked as reference material.
     """
     if not docs:
         print("No context documents found for this identity.")
         return
 
-    print(f"Context stack ({len(docs)} document{'s' if len(docs) != 1 else ''}). Read each file with your Read tool:\n")
-    for doc in docs:
-        for filepath in content_file_paths(doc):
-            desc = doc.get("description", "").strip()
-            print(filepath)
-            if desc:
-                print(f"  {desc}")
-            print()
+    user_docs = [d for d in docs if d.get("source") in ("entity", "workspace")]
+    engine_docs = [d for d in docs if d.get("source") == "engine"]
+
+    total = sum(len(content_file_paths(d)) for d in docs)
+    print(f"Context stack ({total} file{'s' if total != 1 else ''}). Use your Read tool to load each.\n")
+
+    if user_docs:
+        print("## Your workspace (read these — they contain context specific to you)\n")
+        for doc in user_docs:
+            for filepath in content_file_paths(doc):
+                desc = doc.get("description", "").strip()
+                print(filepath)
+                if desc:
+                    print(f"  {desc}")
+                print()
+
+    if engine_docs:
+        print("## Engine reference (read if unfamiliar with Substrate conventions)\n")
+        for doc in engine_docs:
+            for filepath in content_file_paths(doc):
+                desc = doc.get("description", "").strip()
+                print(filepath)
+                if desc:
+                    print(f"  {desc}")
+                print()
 
 
 def print_json(docs):
