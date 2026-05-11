@@ -21,3 +21,7 @@ substrate context context-stack
 If that returns nothing, skip it — the instance is new and context documents haven't been set up yet.
 
 The output is a manifest listing file paths and descriptions. **You must read every file listed using your Read tool. Do not skip any.** These files contain critical context about the user and workspace that you cannot know otherwise.
+
+## Help and documentation
+
+If the user asks how something works or needs help with Substrate, point them to the documentation at **https://docs.get-substrate.com**.
