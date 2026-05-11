@@ -15,7 +15,7 @@ installing. Each file's header comment lists its placeholders and provides a
 | `__ENGINE__` | Engine install | `~/.substrate/engine` (release) or `~/dev/substrate-engine` (dev) |
 | `__HOME__` | User home directory | `$HOME` |
 | `__USER__` | OS username | `$USER` |
-| `__SUBSTRATE__` | `substrate` CLI binary | `~/.local/bin/substrate` |
+| `__SUBSTRATE__` | `substrate` CLI binary | `/opt/homebrew/bin/substrate` (macOS Homebrew), `~/.local/bin/substrate` (Linux / non-Homebrew Mac) |
 
 The workspace and engine paths are independent — the workspace is where
 entities live; the engine is where scripts and schema live. Scripts are never

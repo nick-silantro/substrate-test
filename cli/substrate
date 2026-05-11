@@ -9,6 +9,7 @@ location; set SUBSTRATE_PATH to override the instance location.
 import argparse
 import json
 import os
+import platform
 import subprocess
 import sys
 from pathlib import Path
@@ -1153,7 +1154,7 @@ def _setup_venv(target: Path) -> None:
 
 def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> None:
     """Generate service unit files from deploy templates and install them."""
-    import platform
+
     import re as _re
 
     deploy_dir = ep / "_system" / "deploy"
@@ -1606,6 +1607,214 @@ def _ensure_node_and_claude_cli() -> None:
             print("  Warning: Claude CLI installation failed. Claude updates won't be available.", file=sys.stderr)
         else:
             print("  ✓ Claude Code CLI installed")
+
+
+def _get_substrate_services_macos() -> list[dict]:
+    """Return [{label, plist_path, workspace_path}] for all registered substrate services."""
+    import re
+    agents_dir = Path.home() / "Library" / "LaunchAgents"
+    services = []
+    if not agents_dir.exists():
+        return services
+    for plist in agents_dir.glob("com.substrate.*.plist"):
+        try:
+            content = plist.read_text(encoding="utf-8")
+            m = re.search(r'<key>SUBSTRATE_PATH</key>\s*<string>(.*?)</string>', content)
+            if m:
+                services.append({
+                    "label": plist.stem,
+                    "plist_path": plist,
+                    "workspace_path": Path(m.group(1)),
+                })
+        except Exception:
+            pass
+    return services
+
+
+def _get_substrate_services_linux() -> list[dict]:
+    """Return [{unit_name, unit_path, workspace_path}] for all registered substrate services."""
+    import re
+    user_systemd = Path.home() / ".config" / "systemd" / "user"
+    services = []
+    if not user_systemd.exists():
+        return services
+    for unit in sorted(list(user_systemd.glob("substrate-*.service")) +
+                       list(user_systemd.glob("substrate-*.timer"))):
+        try:
+            content = unit.read_text(encoding="utf-8")
+            m = re.search(r'Environment=SUBSTRATE_PATH=(.+)', content)
+            if m:
+                services.append({
+                    "unit_name": unit.name,
+                    "unit_path": unit,
+                    "workspace_path": Path(m.group(1).strip()),
+                })
+        except Exception:
+            pass
+    return services
+
+
+def _get_substrate_services_windows() -> list[dict]:
+    """Return [{task_name, workspace_path}] for all registered substrate tasks."""
+    import re
+    services = []
+    try:
+        r = subprocess.run(
+            ["schtasks", "/Query", "/FO", "CSV", "/V", "/TN", "Substrate"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return services
+        import csv as _csv
+        import io as _io
+        reader = _csv.DictReader(_io.StringIO(r.stdout))
+        seen = set()
+        for row in reader:
+            task_name = row.get("TaskName", "").lstrip("\\")
+            task_to_run = row.get("Task To Run", "")
+            if not task_name.startswith("Substrate\\"):
+                continue
+            m = re.search(r'"?([^"]+)[/\\]_system[/\\]scripts[/\\]_run-', task_to_run)
+            if m:
+                wp = str(Path(m.group(1)))
+                if wp not in seen:
+                    seen.add(wp)
+                    services.append({"task_name": task_name, "workspace_path": Path(wp)})
+    except Exception:
+        pass
+    return services
+
+
+def cmd_workspaces(rest: list[str]) -> None:
+    """List all registered Substrate workspaces."""
+    sys_name = platform.system()
+    if sys_name == "Darwin":
+        services = _get_substrate_services_macos()
+    elif sys_name == "Linux":
+        services = _get_substrate_services_linux()
+    elif sys_name == "Windows":
+        services = _get_substrate_services_windows()
+    else:
+        print(f"substrate workspaces: not supported on {sys_name}", file=sys.stderr)
+        return
+
+    if not services:
+        print("No registered Substrate workspaces found.")
+        return
+
+    seen: dict[str, dict] = {}
+    for s in services:
+        wp = str(s["workspace_path"])
+        if wp not in seen:
+            seen[wp] = {"path": s["workspace_path"], "count": 0}
+        seen[wp]["count"] += 1
+
+    print(f"Registered workspaces ({len(seen)}):\n")
+    for wp, info in sorted(seen.items()):
+        exists = info["path"].exists()
+        status = "" if exists else "  ← directory missing"
+        print(f"  {wp}{status}")
+    print()
+    print("To remove a workspace:  substrate remove <path> [--delete]")
+
+
+def cmd_remove(rest: list[str]) -> None:
+    """Unregister background services for a workspace path."""
+    delete = "--delete" in rest
+    paths = [r for r in rest if not r.startswith("--")]
+    if not paths:
+        print("Usage: substrate remove <path> [--delete]", file=sys.stderr)
+        print("  Unregisters background services for the given workspace.", file=sys.stderr)
+        print("  Works even if the directory has already been deleted.", file=sys.stderr)
+        print("  --delete  Also remove the workspace directory after unregistering services.", file=sys.stderr)
+        sys.exit(1)
+
+    target = Path(paths[0]).expanduser().resolve()
+    sys_name = platform.system()
+    removed = 0
+
+    if sys_name == "Darwin":
+        uid = os.getuid()
+        domain = f"gui/{uid}"
+        for s in _get_substrate_services_macos():
+            if s["workspace_path"].expanduser().resolve() == target:
+                subprocess.run(["launchctl", "bootout", f"{domain}/{s['label']}"],
+                               capture_output=True)
+                s["plist_path"].unlink(missing_ok=True)
+                print(f"  ✓ removed {s['label']}")
+                removed += 1
+
+    elif sys_name == "Linux":
+        matching = [s for s in _get_substrate_services_linux()
+                    if s["workspace_path"].expanduser().resolve() == target]
+        for s in matching:
+            subprocess.run(["systemctl", "--user", "disable", "--now", s["unit_name"]],
+                           capture_output=True)
+            s["unit_path"].unlink(missing_ok=True)
+            print(f"  ✓ removed {s['unit_name']}")
+            removed += 1
+        if matching:
+            subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True)
+
+    elif sys_name == "Windows":
+        import re as _re
+        # Prefer looking up the slug from registered tasks (case-insensitive path match)
+        # so removal works even if path casing differs from registration.
+        target_lower = str(target).lower()
+        slug = None
+        for s in _get_substrate_services_windows():
+            if str(s["workspace_path"]).lower() == target_lower:
+                m = _re.search(r'\\[A-Za-z]+-(.+)$', s["task_name"])
+                if m:
+                    slug = m.group(1)
+                    break
+        if not slug:
+            slug = _re.sub(r'[^a-z0-9]+', '-', target.name.lower()).strip('-') or 'workspace'
+        for task_name in [f"Substrate\\EntityWatcher-{slug}",
+                          f"Substrate\\EvaluateTriggers-{slug}",
+                          f"Substrate\\CheckForUpdates-{slug}"]:
+            r = subprocess.run(["schtasks", "/Delete", "/TN", task_name, "/F"],
+                               capture_output=True, text=True)
+            if r.returncode == 0:
+                print(f"  ✓ removed task {task_name}")
+                removed += 1
+        try:
+            import winreg
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows\CurrentVersion\Run",
+                0, winreg.KEY_WRITE,
+            ) as key:
+                label = f"substrate-entity-watcher-{slug}"
+                try:
+                    winreg.DeleteValue(key, label)
+                    print(f"  ✓ removed registry entry {label}")
+                    removed += 1
+                except FileNotFoundError:
+                    pass
+        except Exception:
+            pass
+
+    else:
+        print(f"substrate remove: not supported on {sys_name}", file=sys.stderr)
+        return
+
+    if removed == 0:
+        print(f"No registered services found for {target}")
+        print("Use 'substrate workspaces' to list what is registered.")
+    else:
+        print(f"\nServices unregistered for {target}")
+
+    if delete:
+        if target.exists():
+            import shutil as _shutil
+            _shutil.rmtree(target)
+            print(f"Deleted {target}")
+        else:
+            print(f"Note: {target} does not exist (already deleted).")
+    elif removed > 0 and target.exists():
+        print("Note: the workspace directory still exists. Delete it manually if needed,")
+        print("      or re-run with --delete to remove it now.")
 
 
 def cmd_init(rest: list[str]) -> None:
@@ -2373,6 +2582,9 @@ COMMANDS: dict[tuple[str, ...], callable] = {
     ("claim",): cmd_claim,
     # services
     ("triggers",): cmd_triggers,
+    # workspace management
+    ("workspaces",): cmd_workspaces,
+    ("remove",):     cmd_remove,
 }
 
 
@@ -2387,6 +2599,9 @@ Setup:
   auth login                  Force a new OAuth login
   init [PATH]                 Create a new instance (default: ~/substrate)
   init PATH --reinit          Refresh CLAUDE.md and rebuild index on an existing instance
+  workspaces                  List all registered Substrate workspaces
+  remove PATH                 Unregister background services for a workspace
+  remove PATH --delete        Unregister services and delete the workspace directory
   onboard --from PATH         Create starter context docs from an onboarding JSON file
   check-for-updates           Check for Substrate and Anthropic stack updates
   update-anthropic            Update Claude Code CLI and Agent SDK

@@ -52,6 +52,9 @@ def _fire_heartbeat() -> None:
         if config_path.exists():
             data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
 
+        if data.get("no_telemetry"):
+            return
+
         machine_id = data.get("machine_id")
         if not machine_id:
             return  # machine was never tracked (pre-metrics install), skip

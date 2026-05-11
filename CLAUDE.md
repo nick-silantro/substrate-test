@@ -7,13 +7,14 @@
 Run these two commands at the start of every session:
 
 ```bash
+export PATH="$HOME/.local/bin:$PATH"
 substrate context agent-orientation
 substrate context context-stack
 ```
 
 If either command returns nothing, tell the user — something may be wrong with the workspace setup.
 
-The context-stack output is a manifest listing file paths and descriptions. **You must read every file listed using your Read tool. Do not skip any.** These files contain critical context about the user and workspace that you cannot know otherwise.
+The context-stack output is a manifest listing file paths and descriptions. **You must read every file listed using your Read tool. Do not skip any — fire all Read calls in a single parallel batch.** These files contain critical context about the user and workspace that you cannot know otherwise.
 
 ## Help and documentation
 

@@ -7,13 +7,14 @@
     __WORKSPACE__   absolute path to the workspace root (e.g. /Users/alice/substrate)
     __ENGINE__      absolute path to the engine install (e.g. /Users/alice/.substrate/engine)
     __HOME__        user's home directory (e.g. /Users/alice)
-    __SUBSTRATE__   absolute path to the substrate CLI binary (e.g. /Users/alice/.local/bin/substrate)
+    __SUBSTRATE__   absolute path to the substrate CLI binary
+                    (e.g. /opt/homebrew/bin/substrate on macOS Homebrew, /Users/alice/.local/bin/substrate on Linux)
 
   Install:
     sed -e 's|__WORKSPACE__|/path/to/workspace|g' \
         -e 's|__ENGINE__|/path/to/engine|g' \
         -e 's|__HOME__|'"$HOME"'|g' \
-        -e 's|__SUBSTRATE__|'"$HOME"'/.local/bin/substrate|g' \
+        -e 's|__SUBSTRATE__|/opt/homebrew/bin/substrate|g' \
         _system/deploy/com.substrate.evaluate-triggers.plist \
         > ~/Library/LaunchAgents/com.substrate.evaluate-triggers.plist
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.evaluate-triggers.plist

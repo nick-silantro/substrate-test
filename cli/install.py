@@ -311,10 +311,19 @@ def _install_cli(cli_src: Path) -> None:
 
 def _install_cli_unix(cli_src: Path) -> None:
     path_dirs = os.environ.get("PATH", "").split(":")
-    candidates = [Path.home() / ".local" / "bin", Path.home() / "bin", Path("/usr/local/bin")]
+
+    # On macOS, GUI apps (including Claude Code) don't inherit shell profile PATH
+    # additions, so ~/.local/bin is invisible even if it's in the user's terminal
+    # PATH. Prefer directories that are in the OS-level PATH on all launch paths.
+    # /opt/homebrew/bin is user-writable on Apple Silicon Homebrew installs and
+    # is always in the macOS system PATH. Fall back to /usr/local/bin, then user dirs.
+    candidates = []
+    if sys.platform == "darwin":
+        candidates.append(Path("/opt/homebrew/bin"))
+    candidates += [Path("/usr/local/bin"), Path.home() / ".local" / "bin", Path.home() / "bin"]
 
     for d in candidates:
-        if str(d) in path_dirs and d.exists() and os.access(d, os.W_OK):
+        if d.exists() and os.access(d, os.W_OK):
             _symlink(cli_src, d / "substrate")
             _ok(f"CLI linked to {d}/substrate")
             return
@@ -478,6 +487,35 @@ def _contains(path: Path, text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Telemetry suppression
+# ---------------------------------------------------------------------------
+
+def _write_no_telemetry_flag() -> None:
+    """Persist no_telemetry flag to config.yaml when installing in CI.
+
+    Background services launched by substrate init run in new processes that
+    don't inherit CI env vars, so we persist the flag to config.yaml where
+    check-for-updates.py can find it regardless of how it's invoked.
+    """
+    if not (os.environ.get("SUBSTRATE_NO_TELEMETRY") or os.environ.get("CI")):
+        return
+    try:
+        import yaml
+        config_path = Path.home() / ".substrate" / "config.yaml"
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if config_path.exists():
+            data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        data["no_telemetry"] = True
+        config_path.write_text(
+            yaml.dump(data, default_flow_style=False, sort_keys=False),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -489,6 +527,7 @@ def main() -> None:
     args = _parse_args()
     inside_claude = _is_inside_claude_code()
     _check_prerequisites()
+    _write_no_telemetry_flag()
     cli_src = _install_engine(args.engine, args.repo, args.tag)
     _install_cli(cli_src)
     _setup_workspace(cli_src, args.engine, args.instance)
