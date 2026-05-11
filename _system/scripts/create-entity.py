@@ -589,6 +589,11 @@ def main():
     if args.every:
         try:
             recurrence_config = parse_every_shorthand(args.every)
+            # Inject into all_attrs so precheck can see the schedule_type.
+            # Without this, validate_create runs against a stale snapshot that
+            # predates --every processing and incorrectly rejects valid recurrence.
+            all_attrs = [a for a in all_attrs if not a[0].startswith("recurrence.")]
+            all_attrs.append(("recurrence.schedule_type", recurrence_config["schedule_type"]))
         except ValueError as e:
             print(f"Error: {e}")
             sys.exit(1)
