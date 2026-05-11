@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   launchd unit for the Substrate update checker (macOS).
-  Runs every 15 minutes to check for Substrate and Anthropic stack updates.
-  NOTE: 15-minute interval for testing. Production target: 1 hour (3600).
+  Runs every hour to check for Substrate and Anthropic stack updates.
 
   Placeholders — substituted automatically by `substrate init`:
     __WORKSPACE__   absolute path to the workspace root (e.g. /Users/alice/substrate)
@@ -37,7 +36,7 @@
     <string>__WORKSPACE__</string>
 
     <key>StartInterval</key>
-    <integer>900</integer>
+    <integer>3600</integer>
 
     <key>StandardOutPath</key>
     <string>__WORKSPACE__/_system/logs/check-for-updates-stdout.log</string>

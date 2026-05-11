@@ -1566,12 +1566,12 @@ def _check_for_updates_xml(vbs_path: Path, workspace: Path, logs_dir: Path) -> s
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Substrate update checker — runs every 15 minutes</Description>
+    <Description>Substrate update checker — runs every hour</Description>
   </RegistrationInfo>
   <Triggers>
     <TimeTrigger>
       <Repetition>
-        <Interval>PT15M</Interval>
+        <Interval>PT1H</Interval>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
       <StartBoundary>2000-01-01T00:00:00</StartBoundary>
