@@ -1510,8 +1510,8 @@ def _entity_watcher_xml(vbs_path: Path, workspace: Path, logs_dir: Path, user_si
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
     <RestartOnFailure>
-      <Interval>PT1M</Interval>
-      <Count>999</Count>
+      <Interval>PT5M</Interval>
+      <Count>3</Count>
     </RestartOnFailure>
   </Settings>
   <Actions Context="Author">
