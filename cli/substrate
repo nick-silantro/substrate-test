@@ -1750,7 +1750,7 @@ def _get_substrate_services_windows() -> list[dict]:
                 task_to_run = row.get("Task To Run", "")
                 if not task_name.startswith("Substrate\\"):
                     continue
-                m = re.search(r'"?([^"]+)[/\\]_system[/\\]scripts[/\\]_run-', task_to_run)
+                m = re.search(r'([A-Za-z]:[/\\][^"]+)[/\\]_system[/\\]scripts[/\\]_run-', task_to_run)
                 if m:
                     wp = str(Path(m.group(1)))
                     if wp not in seen:
