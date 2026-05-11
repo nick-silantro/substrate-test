@@ -1734,10 +1734,11 @@ def _get_substrate_services_windows() -> list[dict]:
     services = []
     seen: set[str] = set()
 
-    # Task Scheduler
+    # Task Scheduler — query all tasks and filter, rather than using /TN Substrate
+    # which fails with "cannot find the file" on some Windows configurations.
     try:
         r = subprocess.run(
-            ["schtasks", "/Query", "/FO", "CSV", "/V", "/TN", "Substrate"],
+            ["schtasks", "/Query", "/FO", "CSV", "/V"],
             capture_output=True, text=True,
         )
         if r.returncode == 0:

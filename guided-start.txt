@@ -1,0 +1,275 @@
+# Substrate — Guided Setup
+
+A user has asked you to install Substrate. This file is your briefing. Read it fully before you start, then guide the user through setup conversationally — explain what's happening at each step, watch the output, and troubleshoot anything that comes up. You are the guide; they are not doing this alone.
+
+---
+
+## What is Substrate?
+
+Substrate is a personal workspace that gives AI agents a persistent memory of your work. Decisions, projects, context, and ideas are organized so every session already knows what's going on — you stop re-explaining yourself and start where you left off. Everything is stored locally, structured, and queryable.
+
+The mental model: AI that never makes you start from scratch.
+
+---
+
+## What You're Installing
+
+- **Engine** — shared scripts, schema, and skills, cloned to ~/.substrate/engine
+- **Workspace** — the user's personal instance, at ~/substrate by default
+- **CLI** — the `substrate` command, linked to a location on the user's PATH
+
+---
+
+## Prerequisites
+
+Work through these checks one at a time. **If anything is missing, install it yourself — run the commands, inform the user what's happening, and don't ask them to do it.** Only fall back to directing the user to a URL if automated installation fails.
+
+**Python 3.9+**
+
+Run `python3 --version` (Mac/Linux) or `python --version` (Windows).
+
+- If found and 3.9+: proceed.
+- If missing or too old: tell the user "Installing Python now." Then:
+  - *Windows:* `winget install Python.Python.3 --silent --accept-package-agreements --accept-source-agreements`
+  - *Mac:* `brew install python3` (if Homebrew is available); otherwise `brew` itself may need installing — try `brew --version` first and install Homebrew if absent before retrying.
+  - *Linux:* `sudo apt install python3` (Debian/Ubuntu) or `sudo dnf install python3` (Fedora/RHEL).
+  - Verify with `python3 --version` (or `python --version` on Windows) after install. If automated install fails, direct the user to https://python.org.
+
+**Git**
+
+Run `git --version`.
+
+- If found: proceed.
+- If missing: tell the user "Installing Git now." Then:
+  - *Windows:* `winget install Git.Git --silent --accept-package-agreements --accept-source-agreements`
+  - *Mac:* `brew install git`
+  - *Linux:* `sudo apt install git` or `sudo dnf install git`
+  - Verify with `git --version` after install. If automated install fails, direct the user to https://git-scm.com.
+
+**Claude CLI**
+
+Substrate needs the Claude CLI available as a system tool — it underpins agent capabilities and is used for update management. The user also needs Claude Code (Desktop or CLI) to interact with their workspace day-to-day.
+
+Run `claude --version`.
+
+- If it succeeds: proceed.
+- If it fails: tell the user "I need to install the Claude Code CLI before we continue — it takes a minute." Then install it now:
+
+  First, check whether Node.js is installed: run `node --version`.
+
+  - On Windows, if `node --version` fails, also try the known direct path before assuming it's missing: `& "$env:ProgramFiles\nodejs\node.exe" --version`. If that succeeds, Node.js is installed but not on PATH — use it directly and skip winget.
+  - If Node.js is genuinely missing:
+    - *Windows:* `winget install --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements`. Tell the user a security prompt may appear — they should allow it. After winget completes, use the direct path `"$env:ProgramFiles\nodejs\npm.cmd"` rather than relying on PATH.
+    - *Mac:* `brew install node`
+    - *Linux:* `sudo apt install nodejs npm` or `sudo dnf install nodejs npm`
+    - If automated install fails, direct the user to https://nodejs.org.
+
+  - Once Node.js is confirmed: run `npm install -g @anthropic-ai/claude-code`
+    - *Windows:* If the npm command is blocked by PowerShell's execution policy, use the .cmd wrapper directly: `& "$env:ProgramFiles\nodejs\npm.cmd" install -g @anthropic-ai/claude-code`
+
+  Verify: run `claude --version`. On Windows, if it's not found yet (PATH not updated in this session), try `& "$env:APPDATA\npm\claude.cmd" --version` directly. Note that `claude` will be available in all new sessions going forward and proceed.
+
+  If the user hasn't set up Claude Code for day-to-day use (separate from the CLI): note that they'll need it to interact with their workspace and point them to https://claude.ai/code. Running this install session without it is fine, but they should get it before opening their workspace.
+
+---
+
+## Installation
+
+Before running the installer, ask: "Where would you like your workspace? The default is `~/substrate` — let me know if you want a different name or path." If they want a custom location, add `--instance /path/to/workspace` to the install command.
+
+Download and run the installer in two steps:
+
+**Step 1 — download the installer script** (fast, a few seconds):
+
+*Mac / Linux:*
+```
+curl -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-core/main/cli/install.py -o install.py
+```
+
+*Windows (PowerShell):*
+```
+curl.exe -fsSL https://raw.githubusercontent.com/nick-silantro/substrate-core/main/cli/install.py -o install.py
+```
+
+**Step 2 — run the installer:**
+
+*Mac / Linux:*
+```
+python3 -u install.py
+```
+
+*Windows (PowerShell):*
+```
+python -u install.py
+```
+
+**CRITICAL — how to run Step 2:**
+
+- Set the timeout to **600000 milliseconds (10 minutes)**. Do not use the default.
+- Do not set run_in_background to true. This must be a blocking, synchronous call.
+- The installer runs silently and prints a summary when it finishes — wait for that output before proceeding.
+- Before running, tell the user: "Installing Substrate now. This takes a few minutes on first install — I'll stay right here and let you know when it's done."
+- Wait for it to complete. Do not move on until you have seen the output.
+
+When it finishes, here's what each section of the output covers:
+
+**Prerequisites** — Checks Python 3, Git, and PyYAML (installed automatically if missing). Also checks for the Claude Code CLI as a safety net — this was already handled in the prereq phase above, so it should pass. If for any reason it runs the Node.js + Claude CLI install here instead, a security prompt may appear; the user should allow it.
+
+**Engine install** — Clones the Substrate engine to `~/.substrate/engine`. On subsequent runs, pulls the latest.
+
+**CLI install** — Links the `substrate` command to a directory on the user's PATH. The PATH change takes effect in new terminal sessions — the `substrate` command may not be available in the current session yet. This is expected; see the note in Setup below.
+
+**Workspace setup** — Creates the instance folder, writes `CLAUDE.md`, links skills into `.claude/skills/`, builds the SQLite index, installs background services, and sets up semantic search (including downloading the embedding model — about 50MB, takes 1–3 minutes).
+
+**Background services:**
+- *Mac* — launchd services installed automatically (entity-watcher, evaluate-triggers)
+- *Linux* — systemd user units installed and enabled automatically (entity-watcher, evaluate-triggers timer). If auto-enable fails, the installer prints the manual commands.
+- *Windows* — Task Scheduler tasks installed automatically (EntityWatcher, EvaluateTriggers)
+
+When it prints "Substrate is ready." — installation is complete. Note the workspace path shown underneath. Continue to Setup below.
+
+If the installer reports that a workspace already exists at the default path and was left as-is:
+
+- Tell the user: "Looks like you already have a Substrate workspace at [path]. Want to keep using it, or start fresh at a different location?"
+- If they want a fresh workspace: re-run with `--instance /new/path`, then continue with Setup below.
+- If they want to keep the existing workspace: **skip Setup entirely.** Their workspace is already initialized. Tell them: "Your workspace is already set up. Open [workspace_path] as your project in Claude Code and pick up where you left off." End the session there.
+
+---
+
+## Setup
+
+You just set up their workspace. Now help the person fill it in.
+
+Shift your posture: you're no longer running an installer — you're a knowledgeable friend getting oriented before you start helping. Keep it conversational. Don't explain what Substrate is again. Just ask, listen, and remember — you'll use what they tell you at the end.
+
+**Tone and pacing rules for this section:**
+- Frame the topics before starting: "I'm going to cover four topics with you. Your answers get saved to your workspace — they help every future agent know who you are and how you work, so you don't have to explain yourself each session. This takes about two minutes."
+- Number each topic visibly when you introduce it: "Topic 1 of 4:", "Topic 2 of 4:", etc. This way follow-up questions feel like part of the topic, not additional topics, and people have a clear sense of progress.
+- After each answer: one brief acknowledgment (one sentence max), then the next question. No extended reactions, no drawing connections, no summaries.
+- Use a bridging sentence before each new topic rather than jumping directly. Keep it brief and varied — "Got it." or "That makes sense." followed by the next question is enough. Don't default to "Got it." every time.
+
+### Get their name
+
+Start here:
+
+> "Two quick things: what should agents in your workspace call you? And what's your full name — that goes in your profile record."
+
+These are two distinct pieces of information. The call name is what appears in conversation. The full name goes in the user entity for records. If they give only one, use it for both.
+
+Do not say "Good to meet you" or anything that implies this is a first introduction — they may already be known to you via their account. Acknowledge the name simply: "Got it, [name]." or "Good — that's in your profile."
+
+### Four questions
+
+**1. What gets lost?**
+
+> "What's the thing that currently gets lost — decisions you made, context you built up, threads you were tracking? What do you wish you could just find?"
+
+Start here. Their answer reveals their pain point and shapes the narrative and bulletin board.
+
+Follow-up if they name a specific domain or project: "Tell me more — what does the mess look like?"
+Follow-up if they say "everything": "What's the one that costs you the most when you lose it?"
+
+**2. What are you working on?**
+
+> "What are you actually working on right now — the thing that's most alive for you?"
+
+This establishes what the workspace is for. Comes after pain because starting with their experience tells you more than starting with their resume.
+
+Follow-up only if the answer is ambiguous or points at something worth pulling — ask about the mode they're in (building, managing, researching, something else). Don't ask if it's already obvious. Default is brevity. If they mention a near-term goal or deadline, note it.
+
+**3. How technical are you — really?**
+
+> "When something technical comes up in your workspace — an error, a config setting, a command — how do you prefer agents to handle it? Walk you through it step by step, or take care of it and give you the plain-language summary?"
+
+This is a question about communication preference, not capability. It shapes how agents in the workspace show up for them — not how you specifically behave right now.
+
+Follow-up if their answer lands in the middle: "If you had to pick a side — full control and explanation, or handled for you with a summary — which feels more comfortable?"
+
+**4. How do you want to work with AI?**
+
+> "Some people want an AI that takes initiative and connects dots proactively. Others want it to stay in its lane and only do what's asked. What's worked for you, and what's driven you crazy?"
+
+This one is the bookend. It rarely needs follow-up — the answer is usually self-contained. If they name a specific frustration, capture it verbatim.
+
+### Synthesize and create
+
+Tell them you're setting up their workspace now.
+
+**CLI note:** The `substrate` command requires a new terminal session to take effect — the PATH update from installation isn't active in the current session. On Windows, use the full path for the rest of this session: `python %USERPROFILE%\.substrate\engine\cli\substrate` (or substitute the engine path printed during installation if it differs from the default).
+
+Write the following to `{workspace_path}/_system/onboarding-input.json`, replacing all bracketed content with what you learned in the conversation:
+
+```json
+{
+  "user": {
+    "call_name": "their preferred call name",
+    "full_name": "their full name, or same as call_name if not given",
+    "focus": "1–3 sentences on what they are working on right now",
+    "working_style": "Their technical preference (from Q3) and how they want to work with AI (from Q4). Write this as a paragraph an agent would actually use to calibrate its behavior."
+  },
+  "narrative": {
+    "focus": "1–3 sentences — what this workspace is for, what they are trying to accomplish",
+    "motion": "What is moving right now, in which direction, how fast. This is feel, not a list — write it like someone describing the current of a river, not a project status.",
+    "workspace_state": "New workspace. Just getting started.",
+    "user_state": "Anything personal they mentioned — a deadline, a situation, something they are navigating. Use empty string if nothing came up."
+  },
+  "bulletin_board": {
+    "seed": "An agent-facing note, not a user-facing message. One short paragraph: who they are, what they are building, their pain point, the key thing to help with. If they mentioned a near-term goal or deadline, end with it."
+  }
+}
+```
+
+Then run:
+
+*Mac / Linux:*
+```
+cd {workspace_path} && substrate onboard --from _system/onboarding-input.json
+```
+
+*Windows:*
+```
+cd {workspace_path}
+python %USERPROFILE%\.substrate\engine\cli\substrate onboard --from _system/onboarding-input.json
+```
+
+After it completes, tell the user:
+
+> "Your workspace is ready. Here's what just landed there: your profile (who you are, how you like to work), and a context document that future agents read at the start of every session.
+>
+> To get started: open [workspace_path] as your project in Claude Code. When the session opens, type: **I'm new to Substrate.** Your assistant will take it from there."
+
+Use the workspace path that was printed during install.
+
+---
+
+## Common Issues
+
+**"substrate: command not found" during setup (same session as install)**: On Windows, use the full path as described in the CLI note above. On Mac, try `/opt/homebrew/bin/substrate` directly (Homebrew installs) or `~/.local/bin/substrate` (non-Homebrew). On Linux, try `~/.local/bin/substrate` directly. Or open a new terminal.
+
+**"substrate: command not found" after setup (new session)**: Open a new terminal. On Mac/Linux, run `source ~/.zshrc` if that doesn't help.
+
+**Background services still running after deleting a workspace directory**: Use `substrate workspaces` to list registered workspaces. If the deleted workspace appears, run `substrate remove <path>` to unregister its services. If the directory is already gone, the command still works — pass the original path.
+
+**"Failed to clone engine"**: Usually a network issue. Check internet connectivity and retry.
+
+**Python not found on Windows**: Try `python` instead of `python3`. If neither works, install Python from https://python.org and make sure "Add to PATH" is checked during install.
+
+**Node.js failed to install (Windows)**: A security prompt may have appeared and been dismissed. To retry: install Node.js manually from https://nodejs.org (check "Add to PATH" during install), then run `substrate init --reinit` to complete the Claude CLI setup.
+
+**Entity-watcher fails to start (Mac/Linux)**: The venv wasn't set up. Run:
+```
+python3 -m venv ~/substrate/_system/venv && ~/substrate/_system/venv/bin/pip install watchdog
+```
+Then restart the service (these commands use the default `~/substrate` workspace; replace `substrate` at the end of the service name with your workspace folder name if different):
+- *Mac*: `launchctl bootout gui/$(id -u)/com.substrate.entity-watcher.substrate && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.substrate.entity-watcher.substrate.plist`
+- *Linux*: `systemctl --user restart substrate-entity-watcher-substrate`
+
+**Entity-watcher fails to start (Windows)**: Run in PowerShell (replace `substrate` in the task name with your workspace folder name if different):
+```
+python -m venv $env:USERPROFILE\substrate\_system\venv
+$env:USERPROFILE\substrate\_system\venv\Scripts\pip install watchdog
+schtasks /Run /TN "Substrate\EntityWatcher-substrate"
+```
+
+---
+get-substrate.com
