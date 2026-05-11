@@ -76,11 +76,14 @@ def _pid_is_running(pid: int) -> bool:
     if sys.platform == "win32":
         import ctypes
         PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
         h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-        if h:
-            ctypes.windll.kernel32.CloseHandle(h)
-            return True
-        return False
+        if not h:
+            return False
+        exit_code = ctypes.c_ulong(0)
+        ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(exit_code))
+        ctypes.windll.kernel32.CloseHandle(h)
+        return exit_code.value == STILL_ACTIVE
     else:
         try:
             os.kill(pid, 0)
