@@ -71,6 +71,55 @@ DEBOUNCE_SECONDS = 1.5
 FLUSH_INTERVAL_SECONDS = 0.5
 
 
+def _pid_is_running(pid: int) -> bool:
+    """Return True if the given PID refers to a currently-running process."""
+    if sys.platform == "win32":
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        h = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if h:
+            ctypes.windll.kernel32.CloseHandle(h)
+            return True
+        return False
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True  # process exists, we just can't signal it
+        except OSError:
+            return False
+
+
+def _acquire_instance_lock(substrate_path: str) -> Path:
+    """Exit if another entity-watcher is already running for this workspace.
+
+    Writes a PID file at _system/entity-watcher.pid. If the file already
+    exists and refers to a live process, logs and exits immediately. If the
+    PID is stale (process gone), overwrites with our PID and continues.
+
+    Returns the PID file path so the caller can delete it on exit.
+    """
+    pid_file = Path(substrate_path) / "_system" / "entity-watcher.pid"
+    try:
+        if pid_file.exists():
+            try:
+                existing_pid = int(pid_file.read_text().strip())
+                if _pid_is_running(existing_pid):
+                    logging.info(
+                        "entity-watcher already running (PID %s) — exiting", existing_pid
+                    )
+                    sys.exit(0)
+            except (ValueError, OSError):
+                pass  # Stale or corrupt PID file — overwrite below
+        pid_file.write_text(str(os.getpid()))
+    except Exception as e:
+        logging.warning("instance-lock error: %s", e)
+    return pid_file
+
+
 def _configure_logging():
     logging.basicConfig(
         level=logging.INFO,
@@ -272,6 +321,7 @@ def main():
         "SUBSTRATE_PATH",
         os.path.dirname(os.path.dirname(SCRIPT_DIR)),
     )
+    pid_file = _acquire_instance_lock(substrate_path)
     entities_root = os.path.join(substrate_path, "entities")
     db_path = os.path.join(substrate_path, "_system", "index", "substrate.db")
 
@@ -313,6 +363,10 @@ def main():
         # Final flush on shutdown — apply any remaining pending entries.
         _flush_pending(pending, pending_lock, substrate_path, db_path)
         logging.info("entity-watcher stopped")
+        try:
+            pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

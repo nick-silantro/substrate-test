@@ -62,6 +62,46 @@ def pre_flight_check(meta_files):
     return errors
 
 
+def _backup_changelog(db_path: str) -> list:
+    """Read all changelog rows from the existing DB before a rebuild.
+
+    Returns rows as a list of tuples in rowid order so they can be
+    re-inserted in the correct sequence after the new DB is built.
+    Returns an empty list if the DB does not exist, the changelog table
+    is absent (pre-migration install), or any read error occurs — all
+    treated as "no history to preserve" rather than an abort condition.
+    """
+    if not os.path.exists(db_path):
+        return []
+    try:
+        conn = sqlite3.connect(db_path, timeout=5)
+        try:
+            return conn.execute(
+                "SELECT timestamp, operation, entity_id, entity_type, entity_name, "
+                "agent, triggered_by, raw_json FROM changelog ORDER BY rowid"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []  # changelog table not present
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+
+def _restore_changelog(conn: sqlite3.Connection, rows: list) -> None:
+    """Re-insert saved changelog rows into the new DB. Noop on empty list."""
+    if not rows:
+        return
+    conn.executemany(
+        "INSERT INTO changelog "
+        "(timestamp, operation, entity_id, entity_type, entity_name, "
+        "agent, triggered_by, raw_json) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    conn.commit()
+
+
 def main():
     # Collect entity files first — pre-flight runs before any destructive steps
     pattern = os.path.join(SUBSTRATE_PATH, "entities", "**", "meta.yaml")
@@ -80,6 +120,10 @@ def main():
             print()
         print("Edit the files manually to correct the YAML, then re-run migration.")
         sys.exit(1)
+
+    # Preserve changelog history across rebuilds — back up rows from the live
+    # DB before building the new one and restore them afterward.
+    saved_changelog = _backup_changelog(DB_PATH)
 
     # Build into a temp file so the live DB is never touched until the rebuild
     # is fully complete. If interrupted mid-run, the live DB is untouched.
@@ -241,7 +285,7 @@ def main():
 
         -- Change Data Capture (CDC) log.
         -- Written directly by changelog.py on every entity mutation.
-        -- History resets on full database rebuild — that is acceptable.
+        -- History is preserved across rebuilds via _backup_changelog / _restore_changelog.
         CREATE TABLE changelog (
             rowid INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp TEXT NOT NULL,
@@ -510,11 +554,17 @@ def main():
     """)
     conn.commit()
 
+    # Restore changelog history preserved from the previous DB.
+    _restore_changelog(conn, saved_changelog)
+
     # Print summary
     print(f"Migration complete!")
     print(f"  Entities: {entity_count}")
     print(f"  Relationships: {rel_count}")
-    print(f"  (Changelog starts fresh — history accumulates from this point)")
+    if saved_changelog:
+        print(f"  (Changelog preserved: {len(saved_changelog)} entries)")
+    else:
+        print(f"  (Changelog starts fresh — no prior history)")
     if errors:
         print(f"  Errors: {len(errors)}")
         for e in errors:

@@ -1289,6 +1289,38 @@ def _install_services(target: Path, ep: Path, *, reinstall: bool = False) -> Non
         print(f"  (service installation not supported on {system})")
 
 
+def _migrate_from_registry_fallback(label: str, workspace: Path, slug: str) -> None:
+    """Clean up registry Run key and kill registry-spawned watcher on successful Task Scheduler registration.
+
+    Called when the entity-watcher Task Scheduler task is created successfully on a machine
+    that may have previously been using the registry fallback. Removes both current and
+    legacy format keys so the watcher isn't double-started at next logon.
+    """
+    pid_file = workspace / "_system" / "entity-watcher.pid"
+    if pid_file.exists():
+        try:
+            existing_pid = int(pid_file.read_text().strip())
+            subprocess.run(["taskkill", "/PID", str(existing_pid), "/F"], capture_output=True)
+            pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_WRITE,
+        ) as key:
+            for reg_label in [label, f"SubstrateEntityWatcher-{slug}"]:
+                try:
+                    winreg.DeleteValue(key, reg_label)
+                except FileNotFoundError:
+                    pass
+    except Exception:
+        pass
+
+
 def _install_services_windows(
     target: Path, ep: Path, home: Path, substrate_bin: Path, reinstall: bool, slug: str
 ) -> None:
@@ -1305,6 +1337,7 @@ def _install_services_windows(
     venv_python = target / "_system" / "venv" / "Scripts" / "python.exe"
     local_bin = home / ".local" / "bin"
     substrate_bat = local_bin / "substrate.bat"
+    _, user_sid = _get_windows_user_info()
 
     tasks = [
         {
@@ -1315,9 +1348,9 @@ def _install_services_windows(
                 f'@echo off\n'
                 f'set SUBSTRATE_PATH={target}\n'
                 f'set SUBSTRATE_ENGINE_PATH={ep}\n'
-                f'"{venv_python}" "{ep / "_system" / "scripts" / "entity-watcher.py"}"\n'
+                f'"{venv_python}" "{ep / "_system" / "scripts" / "entity-watcher.py"}" >> "{logs_dir / "entity-watcher.log"}" 2>&1\n'
             ),
-            "xml": lambda cmd_path: _entity_watcher_xml(cmd_path, target, logs_dir),
+            "xml": lambda cmd_path, _sid=user_sid: _entity_watcher_xml(cmd_path, target, logs_dir, _sid),
             "start_immediately": True,
             "registry_fallback": True,
         },
@@ -1377,6 +1410,8 @@ def _install_services_windows(
         xml_path.unlink(missing_ok=True)
 
         if r.returncode == 0:
+            if task.get("registry_fallback"):
+                _migrate_from_registry_fallback(task["label"], target, slug)
             if task["start_immediately"]:
                 subprocess.run(
                     ["schtasks", "/Run", "/TN", task["task_name"]],
@@ -1386,9 +1421,33 @@ def _install_services_windows(
             else:
                 print(f"  ✓ {task['label']}: installed")
         elif task.get("registry_fallback"):
-            _install_via_registry_run(task["label"], vbs_path)
+            if r.stderr.strip():
+                print(f"  ! {task['label']}: schtasks error — {r.stderr.strip()[:200]}")
+            _install_via_registry_run(task["label"], vbs_path, target)
         else:
             print(f"  ! {task['label']}: install failed — {r.stderr.strip()}")
+
+
+def _get_windows_user_info() -> tuple[str, str]:
+    """Return (username, sid) for the current Windows user via `whoami /user /fo csv`.
+
+    Returns ("", "") on any failure — callers treat empty SID as "omit UserId".
+    """
+    try:
+        r = subprocess.run(
+            ["whoami", "/user", "/fo", "csv"],
+            capture_output=True, text=True,
+        )
+        if r.returncode != 0:
+            return ("", "")
+        import csv as _csv, io as _io
+        rows = list(_csv.DictReader(_io.StringIO(r.stdout.strip())))
+        if not rows:
+            return ("", "")
+        row = rows[0]
+        return (row.get("User Name", ""), row.get("SID", ""))
+    except Exception:
+        return ("", "")
 
 
 def _silent_runner_vbs(cmd_path: Path) -> str:
@@ -1400,8 +1459,16 @@ def _silent_runner_vbs(cmd_path: Path) -> str:
     )
 
 
-def _install_via_registry_run(label: str, vbs_path: Path) -> None:
+def _install_via_registry_run(label: str, vbs_path: Path, workspace: Path) -> None:
     """Fallback: register vbs_path in HKCU Run key (no elevation required)."""
+    pid_file = workspace / "_system" / "entity-watcher.pid"
+    if pid_file.exists():
+        try:
+            existing_pid = int(pid_file.read_text().strip())
+            subprocess.run(["taskkill", "/PID", str(existing_pid), "/F"], capture_output=True)
+            pid_file.unlink(missing_ok=True)
+        except Exception:
+            pass
     try:
         import winreg
         run_value = f'wscript.exe //B //NoLogo "{vbs_path}"'
@@ -1416,17 +1483,20 @@ def _install_via_registry_run(label: str, vbs_path: Path) -> None:
         print(f"  ✓ {label}: installed and running now (restarts automatically at each Windows logon)")
     except Exception as e:
         print(f"  ! {label}: Task Scheduler and registry fallback both failed — {e}")
-        print(f"    To start manually: {cmd_path}")
+        print(f"    To start manually: {vbs_path}")
 
 
-def _entity_watcher_xml(vbs_path: Path, workspace: Path, logs_dir: Path) -> str:
+def _entity_watcher_xml(vbs_path: Path, workspace: Path, logs_dir: Path, user_sid: str = "") -> str:
+    _userid_tag = f"      <UserId>{user_sid}</UserId>\n" if user_sid else ""
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
     <Description>Substrate entity watcher — auto-bumps last_edited on entity content changes</Description>
   </RegistrationInfo>
   <Triggers>
-    <LogonTrigger><Enabled>true</Enabled></LogonTrigger>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+{_userid_tag}    </LogonTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
@@ -1655,33 +1725,74 @@ def _get_substrate_services_linux() -> list[dict]:
 
 
 def _get_substrate_services_windows() -> list[dict]:
-    """Return [{task_name, workspace_path}] for all registered substrate tasks."""
+    """Return [{task_name, workspace_path}] for all registered substrate services.
+
+    Checks both Task Scheduler (primary) and the HKCU registry Run key (fallback
+    path used on machines where schtasks /Create fails).
+    """
     import re
     services = []
+    seen: set[str] = set()
+
+    # Task Scheduler
     try:
         r = subprocess.run(
             ["schtasks", "/Query", "/FO", "CSV", "/V", "/TN", "Substrate"],
             capture_output=True, text=True,
         )
-        if r.returncode != 0:
-            return services
-        import csv as _csv
-        import io as _io
-        reader = _csv.DictReader(_io.StringIO(r.stdout))
-        seen = set()
-        for row in reader:
-            task_name = row.get("TaskName", "").lstrip("\\")
-            task_to_run = row.get("Task To Run", "")
-            if not task_name.startswith("Substrate\\"):
-                continue
-            m = re.search(r'"?([^"]+)[/\\]_system[/\\]scripts[/\\]_run-', task_to_run)
-            if m:
-                wp = str(Path(m.group(1)))
-                if wp not in seen:
-                    seen.add(wp)
-                    services.append({"task_name": task_name, "workspace_path": Path(wp)})
+        if r.returncode == 0:
+            import csv as _csv
+            import io as _io
+            reader = _csv.DictReader(_io.StringIO(r.stdout))
+            for row in reader:
+                task_name = row.get("TaskName", "").lstrip("\\")
+                task_to_run = row.get("Task To Run", "")
+                if not task_name.startswith("Substrate\\"):
+                    continue
+                m = re.search(r'"?([^"]+)[/\\]_system[/\\]scripts[/\\]_run-', task_to_run)
+                if m:
+                    wp = str(Path(m.group(1)))
+                    if wp not in seen:
+                        seen.add(wp)
+                        services.append({"task_name": task_name, "workspace_path": Path(wp)})
     except Exception:
         pass
+
+    # Registry Run key (fallback for machines where Task Scheduler fails)
+    try:
+        import winreg
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0, winreg.KEY_READ,
+        ) as key:
+            i = 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(key, i)
+                    i += 1
+                    m = re.match(r"^(?:substrate-entity-watcher|SubstrateEntityWatcher)-(.+)$", name)
+                    if not m:
+                        continue
+                    slug = m.group(1)
+                    pm = re.search(
+                        r'"?([^"]+)[/\\]_system[/\\]scripts[/\\]_run-entity-watcher-',
+                        value,
+                    )
+                    if not pm:
+                        continue
+                    wp = str(Path(pm.group(1)))
+                    if wp not in seen:
+                        seen.add(wp)
+                        services.append({
+                            "task_name": f"Substrate\\EntityWatcher-{slug}",
+                            "workspace_path": Path(wp),
+                        })
+                except OSError:
+                    break
+    except Exception:
+        pass
+
     return services
 
 
@@ -1789,6 +1900,13 @@ def cmd_remove(rest: list[str]) -> None:
                 try:
                     winreg.DeleteValue(key, label)
                     print(f"  ✓ removed registry entry {label}")
+                    removed += 1
+                except FileNotFoundError:
+                    pass
+                legacy_label = f"SubstrateEntityWatcher-{slug}"
+                try:
+                    winreg.DeleteValue(key, legacy_label)
+                    print(f"  ✓ removed legacy registry entry {legacy_label}")
                     removed += 1
                 except FileNotFoundError:
                     pass
@@ -1983,11 +2101,12 @@ def cmd_init(rest: list[str]) -> None:
             capture_output=True,
         )
 
-    print()
-    print("Next steps:")
-    print(f"  export SUBSTRATE_PATH={target}")
-    print(f"  cd {target}")
-    print("  substrate query stats")
+    if not args.reinit:
+        print()
+        print("Next steps:")
+        print(f"  export SUBSTRATE_PATH={target}")
+        print(f"  cd {target}")
+        print("  substrate query stats")
 
 
 
