@@ -4,23 +4,16 @@
 
 # Substrate
 
-Run this at the start of every session to load your operational orientation:
+Run these two commands at the start of every session:
 
 ```bash
 substrate context agent-orientation
-```
-
-## Workspace context
-
-If your instance has context documents configured, also run this:
-
-```bash
 substrate context context-stack
 ```
 
-If that returns nothing, skip it — the instance is new and context documents haven't been set up yet.
+If either command returns nothing, tell the user — something may be wrong with the workspace setup.
 
-The output is a manifest listing file paths and descriptions. **You must read every file listed using your Read tool. Do not skip any.** These files contain critical context about the user and workspace that you cannot know otherwise.
+The context-stack output is a manifest listing file paths and descriptions. **You must read every file listed using your Read tool. Do not skip any.** These files contain critical context about the user and workspace that you cannot know otherwise.
 
 ## Help and documentation
 
